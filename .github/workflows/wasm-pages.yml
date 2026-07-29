@@ -1,4 +1,4 @@
-name: Build WASM release and publish Pages
+name: Build WASM release and publish Page
 
 on:
   push:
