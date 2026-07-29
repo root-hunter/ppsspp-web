@@ -17,7 +17,7 @@ If you temporarily want to use a separate checkout, override
 Clone with submodules:
 
 ```sh
-git clone --recurse-submodules https://github.com/root-hunter/ppsspp-web.git
+git clone --recurse-submodules https://github.com/SlabyLol/ppsspp-web.git
 ```
 
 For an existing checkout:
