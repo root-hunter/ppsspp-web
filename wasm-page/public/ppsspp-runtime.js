@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Antonio Ricciardi
- * SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 /* ── Constants ──────────────────────────────────────────────────── */
