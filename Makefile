@@ -1,4 +1,4 @@
-.PHONY: help app-install app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local \
+.PHONY: wasm-ffmpeg help app-install app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local \
 	server-docker-up server-docker-up-local server-docker-down server-docker-logs \
 	wasm-status wasm-root-check wasm-submodules wasm-submodule-branch \
 	wasm-submodule-update wasm-submodule-use-local wasm-submodule-use-origin \
@@ -14,7 +14,9 @@ WASM_BRANCH ?= wasm
 BIND ?= 192.168.1.170
 PORT ?= 8081
 CMAKE ?= $(or $(wildcard /usr/bin/cmake),cmake)
-WASM_JOBS ?= -j
+WASM_JOBS ?= -j4
+WASM_FFMPEG_JOBS ?= 4
+WASM_FFMPEG_DIR := $(abspath $(WASM_ROOT)/build-ffmpeg-wasm/install)
 ifeq ($(PAGES_WASM_BUILD),dev)
 PAGES_WASM_DIR := $(WASM_ROOT)/build-wasm
 else
@@ -49,6 +51,7 @@ app-build:
 	npm --prefix $(APP_DIR) run build
 
 app-build-pages: wasm-root-check
+	@grep -q '^USE_FFMPEG:BOOL=ON' "$(PAGES_WASM_DIR)/CMakeCache.txt" || (echo "Refusing to publish a build without FFmpeg. Run make wasm-release." >&2; exit 1)
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.js" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.js. Run: make wasm-release" >&2; exit 1)
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.wasm" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.wasm. Run: make wasm-release" >&2; exit 1)
 	@test -f "$(PAGES_WASM_DIR)/PPSSPPSDL.data" || (echo "Missing $(PAGES_WASM_DIR)/PPSSPPSDL.data. Run: make wasm-release" >&2; exit 1)
@@ -59,6 +62,7 @@ app-build-pages: wasm-root-check
 	cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.wasm" "$(APP_DIST)/build-wasm/"
 	cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.data" "$(APP_DIST)/build-wasm/"
 	@if [ -d "$(WASM_ROOT)/assets" ]; then mkdir -p "$(APP_DIST)/build-wasm/assets"; cp -aL "$(WASM_ROOT)/assets/." "$(APP_DIST)/build-wasm/assets/"; find "$(WASM_ROOT)/assets" -type f ! -path '*/.*' | sed 's#^$(WASM_ROOT)/assets/##' | LC_ALL=C sort > "$(APP_DIST)/assets-manifest.txt"; fi
+	python3 scripts/write-build-info.py "$(PAGES_WASM_DIR)" "$(APP_DIST)/build-info.json"
 	@touch "$(APP_DIST)/.nojekyll"
 	@test -f "$(APP_DIST)/index.html"
 	@grep -q '<base href="./">' "$(APP_DIST)/index.html"
@@ -78,11 +82,17 @@ wasm-root-check:
 	@test -d "$(WASM_ROOT)" || (echo "Missing WASM_ROOT: $(WASM_ROOT)" >&2; exit 1)
 	@test -f "$(WASM_ROOT)/Makefile" || (echo "WASM_ROOT does not look like ppsspp-wasm: $(WASM_ROOT)" >&2; exit 1)
 
+wasm-ffmpeg: wasm-root-check
+	WASM_FFMPEG_JOBS="$(WASM_FFMPEG_JOBS)" bash scripts/build-ffmpeg-wasm.sh "$(WASM_ROOT)"
+
 wasm-dev:
 	@if [ "$(abspath $(WASM_ROOT))" = "$(abspath $(WASM_SUBMODULE))" ]; then $(MAKE) wasm-submodules; fi
 	$(MAKE) wasm-root-check WASM_ROOT="$(WASM_ROOT)"
 	git config --global --add safe.directory "$(abspath $(WASM_ROOT))" || true
-	$(MAKE) -C $(WASM_ROOT) wasm-dev CMAKE=$(CMAKE) WASM_JOBS="$(WASM_JOBS)"
+	$(MAKE) wasm-ffmpeg WASM_ROOT="$(WASM_ROOT)"
+	$(MAKE) -C $(WASM_ROOT) wasm-dev-config CMAKE=$(CMAKE)
+	emcmake $(CMAKE) -S "$(WASM_ROOT)" -B "$(WASM_ROOT)/build-wasm" -DUSE_FFMPEG=ON -DFFMPEG_DIR="$(WASM_FFMPEG_DIR)"
+	$(MAKE) -C $(WASM_ROOT) wasm-dev-build CMAKE=$(CMAKE) WASM_JOBS="$(WASM_JOBS)"
 
 wasm-dev-local:
 	$(MAKE) wasm-dev WASM_ROOT="$(LOCAL_WASM_ROOT)"
@@ -91,7 +101,10 @@ wasm-release:
 	@if [ "$(abspath $(WASM_ROOT))" = "$(abspath $(WASM_SUBMODULE))" ]; then $(MAKE) wasm-submodules; fi
 	$(MAKE) wasm-root-check WASM_ROOT="$(WASM_ROOT)"
 	git config --global --add safe.directory "$(abspath $(WASM_ROOT))" || true
-	$(MAKE) -C $(WASM_ROOT) wasm-release CMAKE=$(CMAKE) WASM_JOBS="$(WASM_JOBS)"
+	$(MAKE) wasm-ffmpeg WASM_ROOT="$(WASM_ROOT)"
+	$(MAKE) -C $(WASM_ROOT) wasm-release-config CMAKE=$(CMAKE)
+	emcmake $(CMAKE) -S "$(WASM_ROOT)" -B "$(WASM_ROOT)/build-wasm-release" -DUSE_FFMPEG=ON -DFFMPEG_DIR="$(WASM_FFMPEG_DIR)"
+	$(MAKE) -C $(WASM_ROOT) wasm-release-build CMAKE=$(CMAKE) WASM_JOBS="$(WASM_JOBS)"
 	rm -rf build-wasm-release assets
 	ln -s $(WASM_ROOT)/build-wasm-release build-wasm-release
 	mkdir -p assets

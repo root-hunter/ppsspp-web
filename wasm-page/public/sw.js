@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v3";
+const CACHE_VERSION = "ppsspp-angular-v4";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -27,6 +27,7 @@ self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_VERSION)
       .then(cache => cache.addAll(SHELL_FILES))
+      .catch(() => {}) // Cache denial/quota must not prevent COOP/COEP activation.
       .then(() => self.skipWaiting())
   );
 });
@@ -37,10 +38,10 @@ self.addEventListener("activate", event => {
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(key => key !== CACHE_VERSION)
+          .filter(key => key.startsWith("ppsspp-") && key !== CACHE_VERSION)
           .map(key => caches.delete(key))
       )
-    ).then(() => self.clients.claim())
+    ).catch(() => {}).then(() => self.clients.claim())
   );
 });
 
@@ -58,16 +59,18 @@ self.addEventListener("fetch", event => {
   const isShell = pathname.endsWith("/") ||
                   pathname.endsWith("/index.html") ||
                   pathname.endsWith("/manifest.webmanifest") ||
-                  pathname.endsWith("/ppsspp-runtime.js");
+                  pathname.endsWith("/ppsspp-runtime.js") ||
+                  pathname.endsWith("/build-info.json") ||
+                  pathname.endsWith("/assets-manifest.txt");
 
   if (isShell) {
-    event.respondWith(networkFirst(request));
+    event.respondWith(networkFirst(request, event));
     return;
   }
 
   // Immutable build artifacts → cache-first
   if (IMMUTABLE_EXTS.test(pathname)) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(cacheFirst(request, event));
     return;
   }
 
@@ -76,14 +79,25 @@ self.addEventListener("fetch", event => {
 
 // ── Strategies ───────────────────────────────────────────────────────────────
 
-async function networkFirst(request) {
-  const cache = await caches.open(CACHE_VERSION);
+async function openCache() {
+  try { return await caches.open(CACHE_VERSION); } catch (_) { return null; }
+}
+
+async function cachedResponse(cache, request) {
+  try { return await cache?.match(request); } catch (_) { return null; }
+}
+
+async function networkFirst(request, event) {
+  const cache = await openCache();
   try {
     const response = withCrossOriginIsolation(await fetch(request));
-    if (response.ok) cache.put(request, response.clone());
+    if (response.ok && cache) {
+      const write = cache.put(request, response.clone()).catch(() => {});
+      event?.waitUntil(write);
+    }
     return response;
   } catch (_) {
-    const cached = await cache.match(request);
+    const cached = await cachedResponse(cache, request);
     return cached ? withCrossOriginIsolation(cached) : withCrossOriginIsolation(new Response("Offline – PPSSPP Web is not cached yet.", {
       status: 503,
       headers: { "Content-Type": "text/plain" },
@@ -91,13 +105,16 @@ async function networkFirst(request) {
   }
 }
 
-async function cacheFirst(request) {
-  const cache  = await caches.open(CACHE_VERSION);
-  const cached = await cache.match(request);
+async function cacheFirst(request, event) {
+  const cache = await openCache();
+  const cached = await cachedResponse(cache, request);
   if (cached) return withCrossOriginIsolation(cached);
   try {
     const response = withCrossOriginIsolation(await fetch(request));
-    if (response.ok) cache.put(request, response.clone());
+    if (response.ok && cache) {
+      const write = cache.put(request, response.clone()).catch(() => {});
+      event?.waitUntil(write);
+    }
     return response;
   } catch (err) {
     return withCrossOriginIsolation(new Response("Network error: " + err.message, {

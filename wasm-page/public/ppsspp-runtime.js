@@ -3,9 +3,20 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+// Some privacy modes throw even when reading localStorage. Preferences are
+// optional; keep the emulator usable for the current tab when storage is denied.
+const preferences = (() => {
+  const fallback = new Map();
+  return {
+    getItem(key) { if (fallback.has(key)) return fallback.get(key); try { return localStorage.getItem(key); } catch (_) { return null; } },
+    setItem(key, value) { fallback.set(key, String(value)); try { localStorage.setItem(key, String(value)); } catch (_) {} },
+    removeItem(key) { fallback.set(key, null); try { localStorage.removeItem(key); } catch (_) {} },
+  };
+})();
+
 /* ── Constants ──────────────────────────────────────────────────── */
 let BUILD_DIR          = "build-wasm/";
-const BUILD_STAMP      = String(Date.now());
+let BUILD_STAMP        = String(Date.now());
 let ASSET_DIR          = BUILD_DIR + "assets/";
 const MANIFEST         = "assets-manifest.txt";
 const USE_PRELOADED_ASSETS = true;
@@ -231,21 +242,32 @@ async function hasBuildFile(dir, name) {
     const r = await fetch(dir + name + "?v=" + BUILD_STAMP, { method: "HEAD", cache: "no-store" });
     return r.ok;
   } catch(e) {
-    return false;
+    try { return !!(await caches.match(new URL(dir + name, location.href).href, { ignoreSearch: true })); }
+    catch (_) { return false; }
   }
 }
 
 async function selectBuildDir() {
-  if (await hasBuildFile(BUILD_DIR, "PPSSPPSDL.data")) return;
-
-  const releaseDir = "build-wasm-release/";
-  if (await hasBuildFile(releaseDir, "PPSSPPSDL.js") && await hasBuildFile(releaseDir, "PPSSPPSDL.data")) {
-    setBuildDir(releaseDir);
-    log("Using local release build: " + BUILD_DIR, "ok");
+  let packagedRevision = "";
+  try {
+    const response = await fetch("build-info.json", { cache: "no-store" });
+    if (response.ok) {
+      const info = await response.json();
+      if (/^[a-f0-9]{64}$/.test(info.revision)) packagedRevision = info.revision;
+    }
+  } catch (_) { /* Development servers may not publish build metadata. */ }
+  // A packaged revision describes build-wasm only. Never mix it with a local
+  // release directory that may contain an older, incompatible core.
+  const dirs = packagedRevision ? ["build-wasm/"] : ["build-wasm-release/", "build-wasm/"];
+  if (packagedRevision) BUILD_STAMP = packagedRevision;
+  for (const dir of dirs) {
+    const available = await Promise.all(["PPSSPPSDL.js", "PPSSPPSDL.wasm", "PPSSPPSDL.data"].map(name => hasBuildFile(dir, name)));
+    if (!available.every(Boolean)) continue;
+    setBuildDir(dir);
+    log("Using emulator build: " + BUILD_DIR, "ok");
     return;
   }
-
-  log("PPSSPPSDL.data not found in " + BUILD_DIR + ". Rebuild with wasm-release or publish release files into build-wasm/.", "warn");
+  throw new Error("Emulator files are missing. Build/publish PPSSPPSDL.js, .wasm and .data together.");
 }
 
 /* ── DOM refs ───────────────────────────────────────────────────── */
@@ -342,10 +364,10 @@ const netPortEl           = byId("iNetPort");
 
 // Panel toggle (hidden by default; restore from localStorage)
 const PANEL_KEY = "ppsspp_panel_open";
-if (localStorage.getItem(PANEL_KEY) === "1") document.body.classList.add("panel-open");
+if (preferences.getItem(PANEL_KEY) === "1") document.body.classList.add("panel-open");
 on(panelToggleBtn, "click", () => {
   const open = document.body.classList.toggle("panel-open");
-  localStorage.setItem(PANEL_KEY, open ? "1" : "0");
+  preferences.setItem(PANEL_KEY, open ? "1" : "0");
 });
 
 updateNetworkConfigUI();
@@ -362,6 +384,7 @@ let selectedGame = null;
 let selectedStoredGame = null;
 let started      = false;
 let runtimeReady = false;
+let runtimeFailed = false;
 const trackedAudioContexts = [];
 const audioDebug = {
   callbacks: 0, nonsilent: 0, peak: 0, rate: 0, deviceStarted: false,
@@ -447,12 +470,21 @@ async function opfsParent(path, create, base = OPFS_PERSIST_DIR) {
   return { dir: await opfsDir([base, ...parts], create), name };
 }
 
+async function writeOpfsHandle(handle, data) {
+  const writable = await handle.createWritable();
+  try {
+    await writable.write(data);
+    await writable.close();
+  } catch (error) {
+    try { await writable.abort(); } catch (_) {}
+    throw error;
+  }
+}
+
 async function opfsPut(path, data) {
   const { dir, name } = await opfsParent(path, true);
   const handle = await dir.getFileHandle(name, { create: true });
-  const writable = await handle.createWritable();
-  await writable.write(data);
-  await writable.close();
+  await writeOpfsHandle(handle, data);
 }
 
 async function opfsRead(path) {
@@ -471,8 +503,8 @@ async function opfsClearAll() {
   try { await root.removeEntry(OPFS_PERSIST_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAMES_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAME_META_DIR, { recursive: true }); } catch(e) {}
-  localStorage.removeItem(PRELOAD_FAVORITES_KEY);
-  localStorage.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
+  preferences.removeItem(PRELOAD_FAVORITES_KEY);
+  preferences.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
   await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
   await root.getDirectoryHandle(OPFS_GAMES_DIR, { create: true });
   await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
@@ -482,7 +514,7 @@ async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true
   const files = [];
   let dir;
   try { dir = await opfsDir([base, ...opfsPathParts(prefix)], false); }
-  catch(e) { return files; }
+  catch(e) { if (e.name === "NotFoundError") return files; throw e; }
 
   for await (const [name, handle] of dir.entries()) {
     const rel = prefix ? prefix + "/" + name : name;
@@ -506,10 +538,7 @@ async function opfsPutGame(name, data) {
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
   const handle = await dir.getFileHandle(fileName, { create: true });
-  const writable = await handle.createWritable();
-  await writable.write(data);
-  await writable.close();
-  setPreloadFavorite(safe, true);
+  await writeOpfsHandle(handle, data);
   try { await writeGameMetadata(safe, data); }
   catch(e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
   return safe;
@@ -727,9 +756,7 @@ function extractIsoMetadata(name, data) {
 async function opfsMetaPut(path, data) {
   const { dir, name } = await opfsParent(path, true, OPFS_GAME_META_DIR);
   const handle = await dir.getFileHandle(name, { create: true });
-  const writable = await handle.createWritable();
-  await writable.write(data);
-  await writable.close();
+  await writeOpfsHandle(handle, data);
 }
 
 async function opfsMetaRead(path) {
@@ -738,8 +765,49 @@ async function opfsMetaRead(path) {
   return new Uint8Array(await (await handle.getFile()).arrayBuffer());
 }
 
+async function isoFindBlobEntry(blob, wantedPath) {
+  const read = async (offset, size) => {
+    if (size > 8 * 1024 * 1024 || offset < 0 || offset + size > blob.size) throw new Error("Invalid ISO extent");
+    return new Uint8Array(await blob.slice(offset, offset + size).arrayBuffer());
+  };
+  const pvd = await read(16 * 2048, 2048);
+  if (pvd[0] !== 1 || new TextDecoder().decode(pvd.subarray(1, 6)) !== "CD001") return null;
+  let entry = readIsoDirRecord(new DataView(pvd.buffer), 156);
+  const parts = wantedPath.toUpperCase().split("/").filter(Boolean);
+  for (let depth = 0; depth < parts.length; depth++) {
+    if (!entry || !(entry.flags & 2)) return null;
+    const bytes = await read(entry.extent * 2048, entry.size);
+    const view = new DataView(bytes.buffer);
+    let found = null;
+    for (let off = 0; off < bytes.length;) {
+      const len = bytes[off];
+      if (!len) { off = (Math.floor(off / 2048) + 1) * 2048; continue; }
+      if (len < 34 || off + len > bytes.length || bytes[off + 32] > len - 33) return null;
+      const rec = readIsoDirRecord(view, off);
+      if (rec.name.toUpperCase() === parts[depth]) { found = rec; break; }
+      off += len;
+    }
+    if (!found) return null;
+    entry = found;
+  }
+  return entry ? read(entry.extent * 2048, entry.size) : null;
+}
+
+async function extractGameMetadata(name, data) {
+  if (!(data instanceof Blob)) return extractIsoMetadata(name, data);
+  const meta = extractIsoMetadata(name, null);
+  if (!/\.iso$/i.test(name)) return meta;
+  try {
+    const title = parsePsfTitle(await isoFindBlobEntry(data, "PSP_GAME/PARAM.SFO"));
+    if (title) meta.title = title;
+    const cover = await isoFindBlobEntry(data, "PSP_GAME/ICON0.PNG");
+    if (cover?.length) { meta.coverBytes = cover; meta.coverType = "image/png"; }
+  } catch (_) { /* Invalid/unsupported metadata must not prevent playing. */ }
+  return meta;
+}
+
 async function writeGameMetadata(name, data) {
-  const meta = extractIsoMetadata(name, data);
+  const meta = await extractGameMetadata(name, data);
   const json = {
     fileName: meta.fileName,
     title: meta.title,
@@ -931,7 +999,7 @@ async function playOrMountStoredGame(name) {
   try {
     showToast("Mounting " + name + "…");
     FS.mkdirTree(VIRTUAL_GAME_DIR);
-    FS.writeFile(path, await opfsReadGame(name));
+    FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
     log("Mounted stored game file from OPFS: " + path, "ok");
     refreshEmulatorGameBrowser("mounted " + name);
     showToast("✓ " + name + " mounted");
@@ -1044,7 +1112,7 @@ function clearLibraryCoverURLs() {
 
 function loadPreloadFavorites() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PRELOAD_FAVORITES_KEY) || "[]");
+    const parsed = JSON.parse(preferences.getItem(PRELOAD_FAVORITES_KEY) || "[]");
     return Array.isArray(parsed) ? parsed.filter(name => typeof name === "string" && name) : [];
   } catch(e) {
     return [];
@@ -1053,7 +1121,7 @@ function loadPreloadFavorites() {
 
 function savePreloadFavorites(names) {
   const unique = [...new Set(names.filter(name => typeof name === "string" && name))].sort((a, b) => a.localeCompare(b));
-  localStorage.setItem(PRELOAD_FAVORITES_KEY, JSON.stringify(unique));
+  preferences.setItem(PRELOAD_FAVORITES_KEY, JSON.stringify(unique));
   updatePreloadFavoriteSummary(unique.length);
   return unique;
 }
@@ -1068,23 +1136,10 @@ function setPreloadFavorite(name, enabled) {
   return savePreloadFavorites(next);
 }
 
-function ensurePreloadFavoritesMigrated(existingNames) {
-  const existing = [...new Set(existingNames.filter(name => typeof name === "string" && name))];
-  const migrated = localStorage.getItem(PRELOAD_FAVORITES_MIGRATED_KEY) === "1";
-  const defaultsApplied = localStorage.getItem(PRELOAD_DEFAULTS_APPLIED_KEY) === "1";
-  if (migrated && defaultsApplied) return loadPreloadFavorites();
-
-  if (!migrated) localStorage.setItem(PRELOAD_FAVORITES_MIGRATED_KEY, "1");
-  if (!existing.length) {
-    localStorage.setItem(PRELOAD_DEFAULTS_APPLIED_KEY, "1");
-    updatePreloadFavoriteSummary(0);
-    return [];
-  }
-
-  const merged = savePreloadFavorites([...loadPreloadFavorites(), ...existing]);
-  localStorage.setItem(PRELOAD_DEFAULTS_APPLIED_KEY, "1");
-  log("Startup preload: enabled by default for " + existing.length + " existing library game" + (existing.length === 1 ? "" : "s") + ".", "ok");
-  return merged;
+function ensurePreloadFavoritesMigrated() {
+  preferences.setItem(PRELOAD_FAVORITES_MIGRATED_KEY, "1");
+  preferences.setItem(PRELOAD_DEFAULTS_APPLIED_KEY, "1");
+  return loadPreloadFavorites();
 }
 
 function prunePreloadFavorites(existingNames) {
@@ -1105,8 +1160,8 @@ async function ensureGameMetadata(name) {
   const meta = await readGameMetadata(name);
   if (meta.updated) return meta;
   try {
-    const bytes = await opfsReadGame(name);
-    await writeGameMetadata(name, bytes);
+    const file = await opfsGetGameFile(name);
+    await writeGameMetadata(name, file);
     return await readGameMetadata(name);
   } catch(e) {
     return meta;
@@ -1189,8 +1244,7 @@ async function refreshLibrary() {
 async function addGameToLibrary(file) {
   showToast("Adding " + file.name + "…");
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const storedName = await storeGameBytes(file.name, bytes);
+    const storedName = await opfsPutGame(file.name, file);
     log("Library: added " + storedName + " to OPFS.", "ok");
     showToast("✓ Added " + storedName);
     await refreshLibrary();
@@ -1199,11 +1253,6 @@ async function addGameToLibrary(file) {
     log("Library add failed: " + e.message, "err");
     showToast("❌ " + e.message);
   }
-}
-
-async function storeGameBytes(name, bytes) {
-  const storedName = await opfsPutGame(name, bytes);
-  return storedName;
 }
 
 function filenameFromContentDisposition(header) {
@@ -1257,6 +1306,34 @@ async function readResponseBytes(response, label) {
   return out;
 }
 
+async function storeGameResponse(name, response) {
+  if (!response.ok) throw new Error("Game download failed: HTTP " + response.status);
+  const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
+  const handle = await dir.getFileHandle(fileName, { create: true });
+  if (response.body) {
+    const writable = await handle.createWritable();
+    let received = 0, lastProgress = 0;
+    const total = Number(response.headers.get("content-length")) || 0;
+    const progress = new TransformStream({ transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (performance.now() - lastProgress >= 200) {
+        showLoading("Downloading " + safe + "… " + formatBytes(received), total ? received / total : undefined);
+        lastProgress = performance.now();
+      }
+      controller.enqueue(chunk);
+    } });
+    // pipeTo applies backpressure and aborts the file transaction on failure.
+    await response.body.pipeThrough(progress).pipeTo(writable);
+  } else {
+    await writeOpfsHandle(handle, await response.blob());
+  }
+  const file = await handle.getFile();
+  try { await writeGameMetadata(safe, file); }
+  catch (e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
+  return { name: safe, size: file.size };
+}
+
 async function addGameURLToLibrary(url) {
   const trimmed = url.trim();
   if (!trimmed) { showToast("Paste a game URL first"); return; }
@@ -1279,10 +1356,10 @@ async function addGameURLToLibrary(url) {
     if (!response.ok) throw new Error("HTTP " + response.status + " " + response.statusText);
     const headerName = filenameFromContentDisposition(response.headers.get("content-disposition"));
     const name = (headerName || fallbackName).replace(/[^a-zA-Z0-9._-]/g, "_");
-    const bytes = await readResponseBytes(response, name);
-    const storedName = await storeGameBytes(name, bytes);
+    const stored = await storeGameResponse(name, response);
+    const storedName = stored.name;
     hideLoading();
-    log("Library: downloaded " + storedName + " from " + parsed.href + " (" + formatBytes(bytes.byteLength) + ").", "ok");
+    log("Library: downloaded " + storedName + " from " + parsed.href + " (" + formatBytes(stored.size) + ").", "ok");
     showToast("✓ Downloaded " + storedName);
     setStatus("Library ready", "ok");
     const input = document.getElementById("libraryUrlInput");
@@ -1724,6 +1801,47 @@ async function deleteSaveSlot(slotDir, gameName) {
   refreshSavesTab(); updateStorageInfo();
 }
 
+function nativeSaveRelativePath(file) {
+  const parts = (file.webkitRelativePath || "").split("/").filter(Boolean);
+  if (parts.some(part => part === "." || part === ".." || part.includes("\\"))) throw new Error("Invalid save folder path");
+  const savedata = parts.findIndex(part => part.toUpperCase() === "SAVEDATA");
+  const relative = savedata >= 0 ? parts.slice(savedata + 1) : parts;
+  if (relative.length < 2) throw new Error("Select SAVEDATA or a game's save folder, including its files.");
+  return relative.join("/");
+}
+
+function importNativeSaveFolder(files) {
+  const selected = Array.from(files);
+  const task = persistQueue.then(() => importNativeSaveFolderNow(selected));
+  persistQueue = task.catch(() => {});
+  return task;
+}
+
+async function importNativeSaveFolderNow(files) {
+  if (!files.length) return;
+  try {
+    const paths = Array.from(files, file => ({ file, relative: nativeSaveRelativePath(file) }));
+    const root = window.FS ? detectMemstickDir(window.FS) : PERSIST_ROOTS[0];
+    for (const { file, relative } of paths) {
+      const path = root + "/PSP/SAVEDATA/" + relative;
+      const data = new Uint8Array(await file.arrayBuffer());
+      await opfsPut(path, data);
+      if (window.FS) {
+        fsMkdirP(window.FS, dirname(path));
+        window.FS.writeFile(path, data);
+      }
+    }
+    log("Imported native PSP save folder: " + paths.length + " files.", "ok");
+    showToast("Imported " + paths.length + " PSP save files.");
+    await refreshSavesTab();
+    await updateStorageInfo();
+  } catch (e) { showToast("Save folder import failed: " + e.message, 6000); }
+}
+on("nativeSaveFolderInput", "change", async event => {
+  await importNativeSaveFolder(event.target.files);
+  event.target.value = "";
+});
+
 async function importSaveSlot(file) {
   try {
     const bundle = JSON.parse(await file.text());
@@ -1752,11 +1870,12 @@ async function importSaveSlot(file) {
 // Restore persisted files into Emscripten FS before PPSSPP starts
 async function loadPersistedFiles(FS) {
   try {
-    const entries = await opfsWalk();
+    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
     if (!entries.length) { log("Persistence: no saved data in OPFS.", "dim"); return; }
     let ok = 0;
-    for (const { path, data } of entries) {
+    for (const { path } of entries) {
       try {
+        const data = await opfsRead(path);
         fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
         FS.writeFile(path, data);
         ok++;
@@ -1769,7 +1888,10 @@ async function loadPersistedFiles(FS) {
     const initStats = fsStatDir(FS, _detectedMemstick);
     for (const [path, { size, mtime }] of initStats)
       _persistedFileState.set(path, size + ":" + mtime);
-  } catch(e) { log("Persistence: OPFS load error: " + e.message, "warn"); }
+  } catch(e) {
+    log("Persistence: OPFS load error: " + e.message, "warn");
+    showToast("Browser storage unavailable: this session's progress cannot be saved locally. Check site storage permissions.", 10000);
+  }
 }
 
 function patchIniValue(text, section, key, value) {
@@ -1855,29 +1977,29 @@ function sanitizeNetworkMac(value) {
 }
 
 function loadNetworkConfig() {
-  if (localStorage.getItem(NETWORK_ENABLE_KEY) === null) {
-    localStorage.setItem(NETWORK_ENABLE_KEY, "1");
+  if (preferences.getItem(NETWORK_ENABLE_KEY) === null) {
+    preferences.setItem(NETWORK_ENABLE_KEY, "1");
   }
-  let server = localStorage.getItem(NETWORK_SERVER_KEY);
+  let server = preferences.getItem(NETWORK_SERVER_KEY);
   if (!server) {
     server = browserRelayServerHost();
   } else {
     server = normalizeNetworkServerHost(server);
   }
   if (server !== browserRelayServerHost()) server = browserRelayServerHost();
-  localStorage.setItem(NETWORK_SERVER_KEY, server);
-  let nick = localStorage.getItem(NETWORK_NICK_KEY);
+  preferences.setItem(NETWORK_SERVER_KEY, server);
+  let nick = preferences.getItem(NETWORK_NICK_KEY);
   if (!nick) {
     nick = "WebPlayer";
-    localStorage.setItem(NETWORK_NICK_KEY, nick);
+    preferences.setItem(NETWORK_NICK_KEY, nick);
   }
-  let mac = localStorage.getItem(NETWORK_MAC_KEY);
+  let mac = preferences.getItem(NETWORK_MAC_KEY);
   if (!mac || !/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac)) {
     mac = randomPspMac();
-    localStorage.setItem(NETWORK_MAC_KEY, mac);
+    preferences.setItem(NETWORK_MAC_KEY, mac);
   }
   return {
-    enabled: localStorage.getItem(NETWORK_ENABLE_KEY) === "1",
+    enabled: preferences.getItem(NETWORK_ENABLE_KEY) === "1",
     server,
     nick: sanitizeNetworkNick(nick),
     mac: sanitizeNetworkMac(mac),
@@ -1942,10 +2064,10 @@ function saveNetworkConfigFromUI() {
     nick: sanitizeNetworkNick(networkNickInput?.value),
     mac: sanitizeNetworkMac(networkMacInput?.value),
   };
-  localStorage.setItem(NETWORK_ENABLE_KEY, cfg.enabled ? "1" : "0");
-  localStorage.setItem(NETWORK_SERVER_KEY, cfg.server);
-  localStorage.setItem(NETWORK_NICK_KEY, cfg.nick);
-  localStorage.setItem(NETWORK_MAC_KEY, cfg.mac);
+  preferences.setItem(NETWORK_ENABLE_KEY, cfg.enabled ? "1" : "0");
+  preferences.setItem(NETWORK_SERVER_KEY, cfg.server);
+  preferences.setItem(NETWORK_NICK_KEY, cfg.nick);
+  preferences.setItem(NETWORK_MAC_KEY, cfg.mac);
   updateNetworkConfigUI(cfg, "Saved. Restart PPSSPP to re-apply network defaults.");
   return cfg;
 }
@@ -2263,6 +2385,9 @@ async function forceGamesDirectoryConfig(FS) {
         patched = patchIniValue(patched, section, key, value);
       }
       if (applyMobileTouchDefaults) {
+        if (!/^\s*InternalResolution\s*=/m.test(patched)) {
+          patched = patchIniValue(patched, "Graphics", "InternalResolution", "1");
+        }
         for (const [section, key, value] of MOBILE_TOUCH_CONFIG) {
           patched = patchIniValue(patched, section, key, value);
         }
@@ -2278,7 +2403,15 @@ async function forceGamesDirectoryConfig(FS) {
 }
 
 // Save config+saves from Emscripten FS to OPFS — incremental (only changed/deleted files)
-async function persistFiles(FS, label) {
+let persistQueue = Promise.resolve();
+function persistFiles(FS, label) {
+  const task = persistQueue.then(() => persistFilesNow(FS, label));
+  persistQueue = task.catch(e => log("Persistence failed: " + e.message, "warn"));
+  return task;
+}
+
+async function persistFilesNow(FS, label) {
+  if (!FS || !hasOPFS()) return;
   _detectedMemstick = detectMemstickDir(FS);
   const currentStats = fsStatDir(FS, _detectedMemstick);
 
@@ -2316,7 +2449,13 @@ async function persistFiles(FS, label) {
       } catch(e) { log("Persist write failed " + path + ": " + e.message, "warn"); }
     }
     for (const path of deleted) {
-      try { await opfsDelete(path); } catch(e) {}
+      try { await opfsDelete(path); }
+      catch(e) {
+        if (e.name !== "NotFoundError") {
+          log("Persist delete failed " + path + ": " + e.message, "warn");
+          continue;
+        }
+      }
       _persistedFileState.delete(path);
       removed++;
     }
@@ -2331,9 +2470,12 @@ async function persistFiles(FS, label) {
 }
 
 function startAutoPersist() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && runtimeReady && window.FS) void persistFiles(window.FS, "background");
+  });
   setInterval(() => {
     const FS = window.FS;
-    if (!started || !FS) return;
+    if (!runtimeReady || !FS) return;
     persistFiles(FS, "auto");
   }, PERSIST_SYNC_MS);
 }
@@ -2343,11 +2485,11 @@ let _driveAutoSyncTimer = null;
 let _driveAutoSyncLastAt = 0;
 
 function driveAutoSyncEnabled() {
-  return localStorage.getItem(GOOGLE_AUTO_SYNC_KEY) === "1";
+  return preferences.getItem(GOOGLE_AUTO_SYNC_KEY) === "1";
 }
 
 function driveAutoSyncRate() {
-  return Math.max(60, Number(localStorage.getItem(GOOGLE_AUTO_SYNC_RATE_KEY) || 300));
+  return Math.max(60, Number(preferences.getItem(GOOGLE_AUTO_SYNC_RATE_KEY) || 300));
 }
 
 function updateDriveAutoSyncUI() {
@@ -2482,7 +2624,7 @@ let googleDriveRemoteCache = { saves: [], games: [] };
 let activeDriveAction = "";
 
 function googleClientId() {
-  return (window.PPSSPP_GOOGLE_CLIENT_ID || localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || "").trim();
+  return (window.PPSSPP_GOOGLE_CLIENT_ID || preferences.getItem(GOOGLE_CLIENT_ID_KEY) || "").trim();
 }
 
 function googleRedirectUri() {
@@ -2506,21 +2648,21 @@ function setGoogleToken(token, expiresIn) {
   googleAccessToken = token || "";
   googleTokenExpiresAt = googleAccessToken ? Date.now() + Number(expiresIn || 3600) * 1000 : 0;
   if (googleAccessToken) {
-    localStorage.setItem(GOOGLE_TOKEN_KEY, JSON.stringify({
+    preferences.setItem(GOOGLE_TOKEN_KEY, JSON.stringify({
       accessToken: googleAccessToken,
       expiresAt: googleTokenExpiresAt,
     }));
   } else {
-    localStorage.removeItem(GOOGLE_TOKEN_KEY);
+    preferences.removeItem(GOOGLE_TOKEN_KEY);
   }
 }
 
 function restoreGoogleToken() {
   if (googleAccessToken && Date.now() < googleTokenExpiresAt - 60000) return true;
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(GOOGLE_TOKEN_KEY) || "null"); } catch(e) {}
+  try { saved = JSON.parse(preferences.getItem(GOOGLE_TOKEN_KEY) || "null"); } catch(e) {}
   if (!saved?.accessToken || !saved?.expiresAt || Date.now() >= Number(saved.expiresAt) - 60000) {
-    localStorage.removeItem(GOOGLE_TOKEN_KEY);
+    preferences.removeItem(GOOGLE_TOKEN_KEY);
     return false;
   }
   googleAccessToken = saved.accessToken;
@@ -2535,8 +2677,8 @@ function handleGoogleRedirectCallback() {
   const token = params.get("access_token");
   const error = params.get("error");
   const state = params.get("state") || "";
-  const expectedState = localStorage.getItem(GOOGLE_OAUTH_STATE_KEY) || "";
-  localStorage.removeItem(GOOGLE_OAUTH_STATE_KEY);
+  const expectedState = preferences.getItem(GOOGLE_OAUTH_STATE_KEY) || "";
+  preferences.removeItem(GOOGLE_OAUTH_STATE_KEY);
   history.replaceState(null, document.title, location.pathname + location.search);
 
   if (error) {
@@ -2570,7 +2712,7 @@ function handleGoogleRedirectCallback() {
 
 function startGoogleRedirectLogin(clientId) {
   const state = window.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(16).slice(2);
-  localStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
+  preferences.setItem(GOOGLE_OAUTH_STATE_KEY, state);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: googleRedirectUri(),
@@ -2593,12 +2735,12 @@ async function runDriveAction(name, action) {
 }
 
 function rememberPendingDriveAction() {
-  if (activeDriveAction) localStorage.setItem(GOOGLE_PENDING_ACTION_KEY, activeDriveAction);
+  if (activeDriveAction) preferences.setItem(GOOGLE_PENDING_ACTION_KEY, activeDriveAction);
 }
 
 function takePendingDriveAction() {
-  const action = localStorage.getItem(GOOGLE_PENDING_ACTION_KEY) || "";
-  localStorage.removeItem(GOOGLE_PENDING_ACTION_KEY);
+  const action = preferences.getItem(GOOGLE_PENDING_ACTION_KEY) || "";
+  preferences.removeItem(GOOGLE_PENDING_ACTION_KEY);
   return action;
 }
 
@@ -3037,9 +3179,10 @@ async function downloadDriveGame(file) {
     await ensureDriveFolders(true);
     showLoading("Downloading " + file.name + " from Drive…");
     setDriveActivity("Downloading " + file.name + "…", "run");
-    const bytes = await driveDownloadBytes(file, file.name);
-    const storedName = await storeGameBytes(file.name, bytes);
-    log("Google Drive: downloaded game " + storedName + " (" + formatBytes(bytes.byteLength) + ").", "ok");
+    const response = await driveFetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(file.id) + "?alt=media");
+    const stored = await storeGameResponse(file.name, response);
+    const storedName = stored.name;
+    log("Google Drive: downloaded game " + storedName + " (" + formatBytes(stored.size) + ").", "ok");
     setDriveActivity("Downloaded " + storedName + " to OPFS", "ok");
     setStatus("Downloaded " + storedName + " to OPFS", "ok");
     showToast("✓ Downloaded " + storedName);
@@ -3090,8 +3233,8 @@ async function loadGameAtRuntime(file) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
-    FS.writeFile(path, bytes);
-    await opfsPutGame(file.name, bytes);
+    FS.writeFile(path, bytes, { canOwn: true });
+    await opfsPutGame(file.name, file);
     refreshEmulatorGameBrowser("mounted " + safe);
     log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
     showToast("✓ " + file.name + " loaded → open from PPSSPP game browser", 5000);
@@ -3292,7 +3435,7 @@ function flushLog() {
   for (const e of pendingLines) logLines.push(e);
   pendingLines = [];
   if (logLines.length > MAX_LOG_LINES) logLines.splice(0, logLines.length - MAX_LOG_LINES);
-  renderLog();
+  if (document.body.classList.contains("panel-open") && byId("tabLog")?.classList.contains("active")) renderLog();
 }
 
 function renderLog() {
@@ -3310,6 +3453,7 @@ function log(text, level) {
   const ts  = new Date().toLocaleTimeString("en-GB", { hour12: false });
   const raw = "[" + ts + "] " + text;
   pendingLines.push(buildLineHtml(raw, level || ""));
+  if (pendingLines.length > MAX_LOG_LINES) pendingLines.splice(0, pendingLines.length - MAX_LOG_LINES);
   console.log(raw);
   updateAudioDebugFromLog(text);
   if (!logRafId) logRafId = requestAnimationFrame(flushLog);
@@ -3763,7 +3907,7 @@ const GAMEPAD_POLL_MS = 1000;
 const GAMEPAD_SDL_RECONNECT_MS = 5000;
 const GAMEPAD_SELECT_KEY = "ppsspp_active_gamepad_index";
 let gamepadPollTimer = 0;
-let activeGamepadIndex = Number(localStorage.getItem(GAMEPAD_SELECT_KEY) ?? -1);
+let activeGamepadIndex = Number(preferences.getItem(GAMEPAD_SELECT_KEY) ?? -1);
 if (!Number.isInteger(activeGamepadIndex)) activeGamepadIndex = -1;
 window.__ppssppActiveGamepadIndex = activeGamepadIndex;
 const nativeGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
@@ -3883,7 +4027,7 @@ function updateGamepadSelector() {
 function setActiveGamepadIndex(index, source = "selector") {
   activeGamepadIndex = Number.isInteger(index) ? index : -1;
   window.__ppssppActiveGamepadIndex = activeGamepadIndex;
-  localStorage.setItem(GAMEPAD_SELECT_KEY, String(activeGamepadIndex));
+  preferences.setItem(GAMEPAD_SELECT_KEY, String(activeGamepadIndex));
 
   const gp = connectedGamepads.get(activeGamepadIndex);
   const label = activeGamepadIndex < 0 ? "All controllers" : (gp ? shortGamepadName(gp.id) : "Pad " + (activeGamepadIndex + 1));
@@ -4132,14 +4276,20 @@ const COI_RELOAD_KEY = "ppsspp-coi-reload-count";
 
 async function reloadForCrossOriginIsolation(reason) {
   if (window.crossOriginIsolated) {
-    sessionStorage.removeItem(COI_RELOAD_KEY);
+    try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
     return true;
   }
 
-  const attempts = Number(sessionStorage.getItem(COI_RELOAD_KEY) || "0");
+  let attempts;
+  try { attempts = Number(sessionStorage.getItem(COI_RELOAD_KEY) || "0"); }
+  catch (_) {
+    setStatus("Browser session storage is blocked. Allow site data to enable the secure runtime, or use a server with COOP/COEP headers.", "err");
+    hideLoading();
+    return false;
+  }
   if (attempts >= 3) {
     log("Cross-origin isolation still unavailable after reload attempts. SharedArrayBuffer cannot be used on this page.", "err");
-    setStatus("SharedArrayBuffer unavailable. Reload the page or clear site data.", "err");
+    setStatus("SharedArrayBuffer unavailable. Check secure connection and browser site permissions, then reload.", "err");
     hideLoading();
     setStartButtonMode("idle");
     return false;
@@ -4151,7 +4301,12 @@ async function reloadForCrossOriginIsolation(reason) {
     return false;
   }
 
-  sessionStorage.setItem(COI_RELOAD_KEY, String(attempts + 1));
+  try { sessionStorage.setItem(COI_RELOAD_KEY, String(attempts + 1)); }
+  catch (_) {
+    setStatus("Browser session storage is blocked. Allow site data, then reload.", "err");
+    hideLoading();
+    return false;
+  }
   log("Cross-origin isolation required for WASM threads; reloading through service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
   setStatus("Preparing SharedArrayBuffer isolation\u2026", "run");
   showLoading("Preparing secure runtime\u2026");
@@ -4227,13 +4382,20 @@ async function preloadStoredGames(FS) {
 
   let ok = 0;
   let bytesMounted = 0;
+  const budget = (isMobileExperience() ? 128 : 256) * 1024 * 1024;
   for (const name of favorites) {
+    if (selectedGame && name === selectedGame.name.replace(/[^a-zA-Z0-9._-]/g, "_")) continue;
+    const size = games.find(game => game.path === name)?.size || 0;
+    if (bytesMounted + size > budget) {
+      log("Startup preload skipped to protect memory: " + name + ". Select it in Library when needed.", "warn");
+      continue;
+    }
     const target = VIRTUAL_GAME_DIR + "/" + name;
     try {
       setStatus("Preloading game " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
       showLoading("Preloading game: " + name);
       const data = await opfsReadGame(name);
-      FS.writeFile(target, data);
+      FS.writeFile(target, data, { canOwn: true });
       ok++;
       bytesMounted += data.byteLength || 0;
       log("Startup preload mounted: " + target + " (" + formatBytes(data.byteLength || 0) + ")", "ok");
@@ -4256,7 +4418,7 @@ function makeWorkerFsGameFile(file, safeName) {
 
 function mountGameFileFast(FS, file, safeName, label) {
   const workerFS = globalThis.WORKERFS || window.WORKERFS;
-  if (!workerFS || !FS?.mount) return null;
+  if (!workerFS || !FS?.mount || typeof FileReaderSync === "undefined") return null;
 
   const mountFile = makeWorkerFsGameFile(file, safeName);
   const mountDir = VIRTUAL_GAME_DIR + "/.fast-" + (++fastGameMountSeq);
@@ -4277,8 +4439,7 @@ function mountGameFileFast(FS, file, safeName, label) {
 function persistSelectedGameInBackground(file) {
   if (!file) return;
   (async () => {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    await opfsPutGame(file.name, bytes);
+    await opfsPutGame(file.name, file);
     log("Game saved to OPFS after fast mount: " + file.name, "ok");
     refreshLibrary();
     updateStorageInfo();
@@ -4311,7 +4472,7 @@ async function preloadGame(FS) {
   const bytes = selectedGame
     ? new Uint8Array(await selectedGame.arrayBuffer())
     : await opfsReadGame(selectedStoredGame);
-  FS.writeFile(path, bytes);
+  FS.writeFile(path, bytes, { canOwn: true });
   try { if (selectedGame) await opfsPutGame(selectedGame.name, bytes); }
   catch(e) { log("Could not persist game in OPFS: " + e.message, "warn"); }
   log("Game mounted in MEMFS" + (selectedGame ? " and saved to OPFS" : " from OPFS") + ": " + path, "ok");
@@ -4329,6 +4490,7 @@ function activatePanelTab(tabName) {
   const panel = document.getElementById(id);
   if (panel) panel.classList.add("active");
   if (panelTabSelect && panelTabSelect.value !== name) panelTabSelect.value = name;
+  if (name === "log") { flushLog(); renderLog(); }
   if (name === "library") refreshLibrary();
   if (name === "drive") initDriveConfigUI();
   if (name === "network") updateNetworkConfigUI();
@@ -4349,13 +4511,86 @@ let fpsFrames = 0, fpsLast = performance.now();
     fpsFrames = 0; fpsLast = now;
     if (started && fpsBadge && !fullscreenElement()) {
       fpsBadge.style.display = "block";
-      fpsBadge.textContent = fps + " FPS";
+      fpsBadge.textContent = fps + " Hz · browser";
     } else if (fpsBadge) {
       fpsBadge.style.display = "none";
     }
   }
   requestAnimationFrame(tickFps);
 })();
+
+async function exportDiagnosticReport() {
+  const configs = [];
+  try {
+    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+    for (const entry of entries.filter(e => /\.ini$/i.test(e.path))) {
+      let text;
+      try { text = window.FS ? new TextDecoder().decode(window.FS.readFile(entry.path)) : new TextDecoder().decode(await opfsRead(entry.path)); }
+      catch (_) { text = new TextDecoder().decode(await opfsRead(entry.path)); }
+      let include = false;
+      const settings = text.split(/\r?\n/).filter(line => {
+        const section = line.match(/^\s*\[([^\]]+)\]/);
+        if (section) include = /^(CPU|Graphics|Sound|PostShaderList|PostShaderSetting)$/.test(section[1]);
+        return include;
+      }).join("\n");
+      configs.push({ name: entry.name, settings });
+    }
+  } catch (e) { configs.push({ error: e.message }); }
+  const report = {
+    version: 1, created: new Date().toISOString(),
+    browser: navigator.userAgent, platform: navigator.platform,
+    hardwareConcurrency: navigator.hardwareConcurrency, deviceMemoryGB: navigator.deviceMemory,
+    crossOriginIsolated: window.crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
+    opfsAvailable: hasOPFS(), buildDirectory: BUILD_DIR, coreRevision: BUILD_STAMP,
+    runtimeReady, status: statusEl?.textContent,
+    graphics: ["iRenderer", "iVendor", "iVersion"].map(id => ({ name: id, value: byId(id)?.textContent })),
+    audio: { ...audioDebug }, configs,
+    logs: [...logLines, ...pendingLines].slice(-500).map(line => line.raw
+      .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+      .replace(/([?&#](?:access_token|id_token|code|state)=)[^&\s]+/gi, "$1[redacted]")),
+  };
+  triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "ppsspp-diagnostics.json");
+}
+
+async function resetEmulatorSettings() {
+  if (started && !runtimeFailed) { showToast("Reload first, then reset settings before starting PPSSPP."); return; }
+  if (!confirm("Reset emulator settings? Games, saves and controller mappings are kept. A backup of each settings file is retained.")) return;
+  try {
+    await persistQueue;
+    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+    const configs = entries.filter(e => /\/PSP\/SYSTEM\/[^/]+\.ini$/i.test(e.path) && !/\/controls\.ini$/i.test(e.path));
+    for (const { path } of configs) {
+      await opfsPut(path + ".recovery-backup", await opfsRead(path));
+      await opfsDelete(path);
+      try { window.FS?.unlink(path); } catch (_) {}
+      _persistedFileState.delete(path);
+    }
+    showToast("Settings reset. Reload to start with defaults.", 6000);
+    log("Recovery: reset " + configs.length + " emulator settings file(s); saves retained.", "ok");
+  } catch (e) { showToast("Settings reset failed: " + e.message, 6000); }
+}
+on("diagnosticReportBtn", "click", exportDiagnosticReport);
+on("recoveryReportBtn", "click", exportDiagnosticReport);
+on("resetEmulatorSettingsBtn", "click", resetEmulatorSettings);
+on("recoverySettingsBtn", "click", resetEmulatorSettings);
+on("recoveryReloadBtn", "click", () => location.reload());
+
+function failRuntime(message) {
+  runtimeFailed = true;
+  clearTimeout(window.ModuleStartupWatchdog);
+  runtimeReady = false;
+  hideLoading();
+  setStatus(message, "err");
+  const failureMessage = byId("runtimeFailureMessage");
+  if (failureMessage) failureMessage.textContent = message;
+  const recovery = byId("runtimeRecovery");
+  if (recovery) recovery.hidden = false;
+}
+
+canvas?.addEventListener("webglcontextlost", event => {
+  event.preventDefault();
+  if (started) failRuntime("Graphics context lost. Reload to restart; stored saves are retained.");
+});
 
 /* ── Launch ─────────────────────────────────────────────────────── */
 async function start() {
@@ -4368,18 +4603,20 @@ async function start() {
     await reloadForCrossOriginIsolation("launch");
     return;
   }
-  sessionStorage.removeItem(COI_RELOAD_KEY);
+  try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
   started = true;
   document.body.classList.add("emulator-started");
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
+  const startupWatchdog = setTimeout(() => {
+    if (!runtimeReady) failRuntime("Startup timed out. Export diagnostics or reload to retry.");
+  }, 120000);
+  window.ModuleStartupWatchdog = startupWatchdog;
   fileLabel?.classList.add("disabled");
   if (fileInput) fileInput.disabled = true;
   if (gpuSelectEl) gpuSelectEl.disabled = true;
   canvas?.focus();
   showLoading("Initializing audio\u2026");
-  await selectBuildDir();
-
   let preAudioCtx = null;
   try {
     preAudioCtx = new AudioContext({ latencyHint: "interactive" });
@@ -4391,10 +4628,13 @@ async function start() {
     await installScriptProcessorPolyfill(preAudioCtx);
   } catch(e) { log("AUDIO: pre-init AudioContext failed: " + (e?.message || e), "warn"); }
 
+  try { await selectBuildDir(); }
+  catch (e) { failRuntime(e.message); return; }
+
   let gameArg = null;
   const chosenPowerPref = gpuSelectEl?.value || "high-performance";
   log('GPU powerPreference: "' + chosenPowerPref + '"', "info");
-  if (localStorage.getItem("ppsspp_touch_mouse_fallback") === "1") {
+  if (preferences.getItem("ppsspp_touch_mouse_fallback") === "1") {
     installTouchMouseShim();
   }
 
@@ -4428,32 +4668,37 @@ async function start() {
       log("preRun started.");
       addRunDependency("ppsspp-assets");
       (async () => {
+        let prepared = false;
         try {
           await preloadAssets(FS);
           // Restore persisted config and saves from OPFS
           setStatus("Restoring saves from OPFS\u2026", "run");
           showLoading("Restoring saves\u2026");
           await loadPersistedFiles(FS);
-          await preloadStoredGames(FS);
           await forceGamesDirectoryConfig(FS);
           gameArg = await preloadGame(FS);
+          if (!gameArg) await preloadStoredGames(FS);
           Module.arguments.length = 0;
           Module.arguments.push(...emulatorLaunchArgs());
           if (gameArg) Module.arguments.push(gameArg);
           log("PPSSPP arguments: " + JSON.stringify(Module.arguments), "info");
           setStatus("Starting PPSSPP\u2026", "run");
           showLoading("Starting PPSSPP\u2026");
+          prepared = true;
         } catch(err) {
           log("preRun failed: " + (err?.stack || err), "err");
           setStatus(err.message || String(err), "err");
-          hideLoading(); throw err;
+          failRuntime("Startup failed: " + (err.message || String(err)));
+          window.Module?.abort?.(err);
+          return;
         } finally {
           log("preRun complete, removing asset dependency.");
-          removeRunDependency("ppsspp-assets");
+          if (prepared) removeRunDependency("ppsspp-assets");
         }
       })();
     }],
     onRuntimeInitialized() {
+      clearTimeout(window.ModuleStartupWatchdog);
       log("Runtime initialized.", "ok");
       runtimeReady = true;
       setStatus(gameArg ? "Game running" : "Library ready", "ok");
@@ -4472,13 +4717,10 @@ async function start() {
       setInterval(reportAudioStatus, 5000);
       setInterval(updateInfoPanel,   2000);
       // Initial persist after PPSSPP creates its directories
-      setTimeout(() => persistFiles(window.FS, "init"), 8000);
+      setTimeout(() => { if (runtimeReady) void persistFiles(window.FS, "init"); }, 8000);
     },
     onAbort(reason) {
-      log("Runtime abort: " + reason, "err");
-      setStatus("Abort: " + reason, "err");
-      runtimeReady = false;
-      hideLoading();
+      failRuntime("Runtime abort: " + reason);
     }
   };
 
@@ -4491,7 +4733,7 @@ async function start() {
       log("Network: SOCKFS relay hook was not available in this build.", "warn");
     }
   };
-  script.onerror = () => { setStatus("Failed to load PPSSPPSDL.js", "err"); hideLoading(); };
+  script.onerror = () => failRuntime("Failed to load PPSSPPSDL.js. Check the connection and reload to retry.");
   document.body.appendChild(script);
 }
 
@@ -4730,8 +4972,8 @@ window.addEventListener("storage", e => {
 });
 on("saveGoogleClientIdBtn", "click", () => {
   const value = (googleClientIdInput?.value || "").trim();
-  if (value) localStorage.setItem(GOOGLE_CLIENT_ID_KEY, value);
-  else localStorage.removeItem(GOOGLE_CLIENT_ID_KEY);
+  if (value) preferences.setItem(GOOGLE_CLIENT_ID_KEY, value);
+  else preferences.removeItem(GOOGLE_CLIENT_ID_KEY);
   setGoogleToken("", 0);
   takePendingDriveAction();
   googleTokenClient = null;
@@ -4766,12 +5008,12 @@ on("driveDownloadGamesBtn", "click", () => runDriveAction("download-games", down
 
 // Drive auto-sync controls
 on("driveAutoSyncToggle", "change", e => {
-  localStorage.setItem(GOOGLE_AUTO_SYNC_KEY, e.target.checked ? "1" : "0");
+  preferences.setItem(GOOGLE_AUTO_SYNC_KEY, e.target.checked ? "1" : "0");
   restartDriveAutoSyncTimer();
   showToast(e.target.checked ? "✓ Drive auto-sync enabled" : "Drive auto-sync disabled");
 });
 on("driveAutoSyncInterval", "change", e => {
-  localStorage.setItem(GOOGLE_AUTO_SYNC_RATE_KEY, e.target.value);
+  preferences.setItem(GOOGLE_AUTO_SYNC_RATE_KEY, e.target.value);
   restartDriveAutoSyncTimer();
 });
 

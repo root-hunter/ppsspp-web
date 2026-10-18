@@ -56,7 +56,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-06-03-preload-hard-drive-icon';
+const RUNTIME_ASSET_VERSION = '2026-10-18-stability-1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

@@ -119,3 +119,15 @@ The target writes the publishable app to `wasm-page/dist/ppsspp-web/`, adds
 `wasm-page/dist/ppsspp-web/build-wasm/`, and publishes
 `$(WASM_ROOT)/assets/` under `build-wasm/assets/` when present. That output
 directory is the exact static artifact uploaded by the GitHub Pages workflow.
+
+## Stability checks
+
+Browser builds include the bundled FFmpeg video/audio decoders. `make wasm-release`
+builds those libraries before configuring the core; publishing a build configured
+without FFmpeg is rejected. See [browser stability notes](docs/browser-stability.md)
+for the user-report backlog, recovery tools and the device test procedure.
+
+```sh
+npm --prefix wasm-page test
+bash scripts/test-ffmpeg-wasm.sh
+```

@@ -8,7 +8,8 @@
     "start": "ng serve",
     "build": "ng build",
     "build:pages": "ng build --configuration production --base-href ./",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "test": "node tests/runtime.test.mjs"
   },
   "dependencies": {
     "@angular/common": "21.2.14",

@@ -84,7 +84,17 @@
         <div class="load-label" id="loadLabel">Initializing&hellip;</div>
         <div class="progress-wrap"><div id="progressBar"></div></div>
       </div>
-      <div id="fpsBadge">0 FPS</div>
+      <div id="runtimeRecovery" class="runtime-recovery" role="alert" hidden>
+        <strong>The emulator stopped</strong>
+        <p id="runtimeFailureMessage"></p>
+        <p>Export a report to help diagnose the problem. If changing a graphics setting caused it, reset emulator settings before reloading. Games and saves are kept.</p>
+        <div class="recovery-actions">
+          <button id="recoveryReportBtn" type="button">Export report</button>
+          <button id="recoverySettingsBtn" type="button">Reset settings</button>
+          <button id="recoveryReloadBtn" type="button" class="primary">Reload</button>
+        </div>
+      </div>
+      <div id="fpsBadge" title="Browser refresh cadence; not the emulated game's frame rate">0 Hz · browser</div>
       <div id="stageMini">
         <span class="stage-dot" id="stageDot"></span>
         <span id="stageMiniText">Ready</span>
@@ -147,6 +157,10 @@
             <label class="btn" id="importSaveSlotLabel" title="Import a single save slot folder (.ppsspp)">
               <i data-lucide="upload"></i> Import Slot
               <input id="importSaveSlotFile" type="file" accept=".ppsspp,.json">
+            </label>
+            <label class="btn" title="Select a PSP SAVEDATA folder or one game's save folder">
+              <i data-lucide="folder-open"></i> PSP Folder
+              <input id="nativeSaveFolderInput" type="file" webkitdirectory multiple aria-label="Import native PSP save folder">
             </label>
             <button id="deleteAllSavesBtn" class="danger toolbar-push"><i data-lucide="trash-2"></i> All</button>
           </div>
@@ -254,6 +268,15 @@
 
       <div class="tab-panel" id="tabInfo">
         <div id="infoPanel">
+          <div class="info-group">
+            <h3>Troubleshooting</h3>
+            <p class="about-text">Reports include browser details, graphics/audio settings and recent logs. Download and review before sharing; nothing is sent automatically.</p>
+            <div class="diagnostic-actions">
+              <button id="diagnosticReportBtn" type="button">Export diagnostic report</button>
+              <button id="resetEmulatorSettingsBtn" type="button">Reset emulator settings</button>
+            </div>
+            <p class="about-text">Reset settings before starting, or after a crash. Games, saved progress and controller mappings are kept.</p>
+          </div>
           <div class="info-group">
             <h3>WebGL / GPU</h3>
             <div class="info-row"><span class="info-key">Renderer</span>   <span class="info-val" id="iRenderer">&#8212;</span></div>

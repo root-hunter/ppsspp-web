@@ -1370,3 +1370,12 @@ a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid 
 @media (min-width: 701px) and (max-width: 1250px) and (min-height: 651px) {
   .console-photo { width: 58%; }
 }
+
+.runtime-recovery { position: absolute; z-index: 20; width: min(480px, calc(100% - 32px)); padding: 24px; background: var(--surface); border: 1px solid var(--border2); border-radius: 8px; box-shadow: var(--shadow); }
+.runtime-recovery[hidden] { display: none; }
+.runtime-recovery strong { font-size: 18px; }
+.runtime-recovery p { color: var(--muted); line-height: 1.7; margin: 12px 0 20px; }
+.recovery-actions, .diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.diagnostic-actions { margin: 14px 0; }
+
+.saves-toolbar { flex-wrap: wrap; gap: 8px; }

@@ -53,6 +53,9 @@ jobs:
       - name: Install Angular dependencies
         run: npm --prefix wasm-page ci
 
+      - name: Test browser runtime
+        run: npm --prefix wasm-page test
+
       - name: Build static Pages artifact
         run: make app-build-pages WASM_ROOT=ppsspp-wasm-src
 
