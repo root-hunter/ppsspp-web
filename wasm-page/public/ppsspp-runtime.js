@@ -364,11 +364,21 @@ const netPortEl           = byId("iNetPort");
 
 // Panel toggle (hidden by default; restore from localStorage)
 const PANEL_KEY = "ppsspp_panel_open";
-if (preferences.getItem(PANEL_KEY) === "1") document.body.classList.add("panel-open");
-on(panelToggleBtn, "click", () => {
-  const open = document.body.classList.toggle("panel-open");
+function setPanelOpen(open, focus = true) {
+  document.body.classList.toggle("panel-open", open);
   preferences.setItem(PANEL_KEY, open ? "1" : "0");
+  for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
+  if (focus) {
+    const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsPanelBtn") : panelToggleBtn;
+    target?.focus();
+  }
+}
+setPanelOpen(preferences.getItem(PANEL_KEY) === "1", false);
+on(panelToggleBtn, "click", () => {
+  setPanelOpen(!document.body.classList.contains("panel-open"));
 });
+on("panelCloseBtn", "click", () => setPanelOpen(false));
+on("panelBackdrop", "click", () => setPanelOpen(false));
 
 updateNetworkConfigUI();
 networkUseThisHostBtn?.addEventListener("click", () => {
@@ -5067,7 +5077,18 @@ function isFullscreenActive() {
 }
 
 function fullscreenTarget() {
-  return stageEl || canvas || document.documentElement;
+  return document.querySelector(".body-main") || stageEl || canvas || document.documentElement;
+}
+
+// SDL may request fullscreen directly on the canvas. Keep the shell controls
+// and panels inside the fullscreen element in that path too.
+for (const method of ["requestFullscreen", "webkitRequestFullscreen"]) {
+  if (!canvas || typeof canvas[method] !== "function") continue;
+  const nativeRequest = canvas[method].bind(canvas);
+  canvas[method] = (...args) => {
+    const target = fullscreenTarget();
+    return target !== canvas && typeof target[method] === "function" ? target[method](...args) : nativeRequest(...args);
+  };
 }
 
 async function requestBrowserFullscreen() {
@@ -5149,6 +5170,11 @@ on(fullscreenBtn, "click", async () => {
   await togglePPSSPPFullscreen();
   canvas?.focus();
   describeAudio();
+});
+on("fsPanelBtn", "click", () => setPanelOpen(!document.body.classList.contains("panel-open")));
+on("fsExitBtn", "click", async () => {
+  await exitBrowserFullscreen();
+  fullscreenBtn?.focus();
 });
 
 /* ── Init ───────────────────────────────────────────────────────── */

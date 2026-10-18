@@ -168,11 +168,23 @@ select.btn option { background: var(--surface2); }
 
 /* ── Main area ───────────────────────────────────────── */
 .body-main {
+  position: relative;
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: 1fr;
   overflow: hidden;
 }
-body.panel-open .body-main { grid-template-columns: minmax(0,1fr) var(--panel-w); }
+/* Panels overlay the stage so opening settings never resizes the game. */
+.fullscreen-toolbar { display: none; }
+.body-main:fullscreen,
+.body-main:-webkit-full-screen {
+  width: 100%; height: 100%;
+}
+.body-main:fullscreen .fullscreen-toolbar,
+.body-main:-webkit-full-screen .fullscreen-toolbar {
+  position: absolute; top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left)); z-index: 190;
+  display: flex; gap: 8px;
+}
 
 /* ── Stage (canvas area) ─────────────────────────────── */
 .stage {
@@ -313,12 +325,22 @@ body.emulator-started #idleOverlay { opacity: 0; visibility: hidden; pointer-eve
 
 /* ── Side panel ──────────────────────────────────────── */
 aside {
+  position: absolute; top: 0; bottom: 0; right: 0;
+  width: min(var(--panel-w), 100%); z-index: 200;
   display: none; /* hidden by default */
   grid-template-rows: auto auto 1fr;
   border-left: 1px solid var(--border); background: var(--surface);
   min-height: 0; overflow: hidden;
 }
 body.panel-open aside { display: grid; }
+#panelBackdrop {
+  display: none; position: absolute; inset: 0; z-index: 199;
+  width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0;
+  background: rgba(0,0,0,.4);
+}
+body.panel-open #panelBackdrop { display: block; }
+#statusText { flex: 1; }
+#panelCloseBtn { flex-shrink: 0; }
 
 .status-bar {
   display: flex; align-items: flex-start; gap: 8px;
@@ -618,6 +640,7 @@ body.panel-open aside { display: grid; }
   body.panel-open .body-main { grid-template-columns: 1fr; }
   body.panel-open aside {
     position: fixed;
+    top: auto; width: auto;
     bottom: 0; left: 0; right: 0; z-index: 200;
     height: min(calc(var(--app-h) * .72), calc(var(--app-h) - 72px));
     max-height: calc(var(--app-h) - env(safe-area-inset-top) - 12px);
@@ -815,6 +838,13 @@ body.panel-open aside { display: grid; }
     max-height: max(1px, calc(var(--visual-h) - var(--h)));
   }
   body.panel-open aside::before { display: none; }
+  body.browser-fullscreen.panel-open aside {
+    top: 0; height: var(--app-h);
+  }
+  body.browser-fullscreen.keyboard-open.panel-open aside {
+    height: var(--visual-h);
+    max-height: var(--visual-h);
+  }
   /* In landscape the aside is flex-column — ensure every child shrinks correctly */
   body.panel-open aside .status-bar {
     min-height: 0; padding: 5px 10px; font-size: 10.5px;

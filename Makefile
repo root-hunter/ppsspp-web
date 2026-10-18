@@ -63,6 +63,7 @@ app-build-pages: wasm-root-check
 	cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.js" "$(APP_DIST)/build-wasm/"
 	cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.wasm" "$(APP_DIST)/build-wasm/"
 	cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.data" "$(APP_DIST)/build-wasm/"
+	@if [ -f "$(PAGES_WASM_DIR)/PPSSPPSDL.worker.js" ]; then cp -aL "$(PAGES_WASM_DIR)/PPSSPPSDL.worker.js" "$(APP_DIST)/build-wasm/"; cmp "$(PAGES_WASM_DIR)/PPSSPPSDL.worker.js" "$(APP_DIST)/build-wasm/PPSSPPSDL.worker.js"; fi
 	@if [ -d "$(WASM_ROOT)/assets" ]; then mkdir -p "$(APP_DIST)/build-wasm/assets"; cp -aL "$(WASM_ROOT)/assets/." "$(APP_DIST)/build-wasm/assets/"; find "$(WASM_ROOT)/assets" -type f ! -path '*/.*' | sed 's#^$(WASM_ROOT)/assets/##' | LC_ALL=C sort > "$(APP_DIST)/assets-manifest.txt"; fi
 	python3 scripts/write-build-info.py "$(PAGES_WASM_DIR)" "$(APP_DIST)/build-info.json"
 	@touch "$(APP_DIST)/.nojekyll"

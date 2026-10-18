@@ -100,6 +100,20 @@ make server-docker-up-local
 
 ## GitHub Pages
 
+The workflow builds the exact `deps/ppsspp-wasm` revision pinned by this
+repository and verifies the checkout before compiling. Pull requests targeting
+`wasm` run the same build and runtime tests and upload the Pages artifact for
+review; deployment runs only for pushes and manual workflow runs.
+
+Static packaging includes `PPSSPPSDL.worker.js` when the Emscripten build emits
+a separate pthread worker. The worker participates in the build cache revision,
+so changing it invalidates the matching emulator bundle.
+
+The settings panel overlays the game without changing its size. Fullscreen
+includes the panel and a toolbar for opening settings or leaving fullscreen.
+These improvements adapt ideas from the power8koch-alt, noreturningfromthis,
+bee-san and BeezBumba forks.
+
 Build the static Angular bundle with a relative base href, ready for GitHub
 Pages, from an existing `ppsspp-wasm` release build:
 

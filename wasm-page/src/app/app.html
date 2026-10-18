@@ -46,11 +46,15 @@
       <a class="top-official-link" href="https://www.ppsspp.org/" target="_blank" rel="noopener" title="Original PPSSPP website">
         <span>PPSSPP.org</span><i data-lucide="external-link"></i>
       </a>
-      <button id="panelToggleBtn" class="panel-btn" title="Toggle console panel"><i data-lucide="panel-right"></i><span class="btn-lbl"> Panel</span></button>
+      <button id="panelToggleBtn" class="panel-btn" title="Toggle console panel" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i><span class="btn-lbl"> Panel</span></button>
     </div>
   </header>
 
   <div class="body-main">
+    <div class="fullscreen-toolbar" role="group" aria-label="Fullscreen controls">
+      <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i> Panel</button>
+      <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
+    </div>
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
       <div id="idleOverlay">
@@ -101,10 +105,12 @@
       </div>
     </section>
 
-    <aside>
+    <button id="panelBackdrop" type="button" aria-label="Close panel" tabindex="-1"></button>
+    <aside id="sidePanel" aria-label="Settings and information">
       <div class="status-bar">
         <div class="status-dot" id="statusDot"></div>
         <span id="statusText">Ready. Open a game file or use Library.</span>
+        <button id="panelCloseBtn" class="icon-btn" type="button" aria-label="Close panel" title="Close panel"><i data-lucide="x"></i></button>
       </div>
 
       <div class="panel-tab-select-wrap">
