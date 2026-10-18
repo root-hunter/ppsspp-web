@@ -371,7 +371,7 @@ const audioDebug = {
 
 function updateIdleOverlay() {
   if (!idleOverlay || started) return;
-  let text = "Open a PSP game file or pick one from the library to start PPSSPP in the browser.";
+  let text = "Your PSP games, right here. Open a game to play, or start the emulator and explore your library.";
   if (selectedGame) text = "Ready to launch " + selectedGame.name + ".";
   else if (selectedStoredGame) text = "Ready to launch " + selectedStoredGame + " from your library.";
   if (idleSubtitle) idleSubtitle.textContent = text;

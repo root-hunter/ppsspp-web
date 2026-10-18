@@ -1,11 +1,8 @@
 
   <header>
     <span class="logo">
-      <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-        <rect width="20" height="20" rx="5" fill="#00d4aa" fill-opacity=".12"/>
-        <polygon points="5,15 10,4 15,15" fill="#00d4aa"/>
-      </svg>
-      <span>PPSSPP Web</span>
+      <img class="brand-logo" src="images/ppsspp-icon.png" alt="" width="32" height="32">
+      <span class="brand-name">PPSSPP <small>WEB</small></span>
     </span>
 
     <div class="hbar-sep"></div>
@@ -13,12 +10,12 @@
     <div class="hbar-group" id="launchGroup">
       <label class="btn" id="fileLabel">
         <i data-lucide="folder-open"></i><span class="btn-lbl"> Open Game</span>
-        <input id="gameFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
+        <input id="gameFile" aria-label="Open PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
       </label>
-      <button id="startBtn" class="primary"><i data-lucide="play"></i><span class="btn-lbl"> Start PPSSPP</span></button>
+      <button id="startBtn" aria-label="Start PPSSPP" class="primary"><i data-lucide="play"></i><span class="btn-lbl"> Start PPSSPP</span></button>
       <label class="btn" id="runtimeIsoLabel" style="display:none" title="Load a game file while running — then open it from PPSSPP game browser">
         <i data-lucide="upload"></i><span class="btn-lbl"> Load Game</span>
-        <input id="runtimeIsoFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
+        <input id="runtimeIsoFile" aria-label="Load PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
       </label>
     </div>
 
@@ -59,23 +56,22 @@
       <div id="idleOverlay">
         <div class="idle-content">
           <div class="idle-copy">
-            <div class="idle-kicker">Ready to play</div>
-            <h1 class="idle-title">Your PSP is waiting.</h1>
-            <p class="idle-subtitle" id="idleSubtitle">Open a PSP game file or pick one from the library to start PPSSPP in the browser.</p>
+            <div class="idle-kicker">PlayStation Portable · Browser edition</div>
+            <h1 class="idle-title">Play your<br>PSP games.</h1>
+            <p class="idle-subtitle" id="idleSubtitle">Your PSP games, right here. Open a game to play, or start the emulator and explore your library.</p>
             <div class="idle-actions">
               <button id="idleStartBtn" class="primary" type="button"><i data-lucide="play"></i><span> Start PPSSPP</span></button>
               <label class="btn" for="gameFile"><i data-lucide="folder-open"></i><span> Open Game</span></label>
-              <a class="btn idle-repo-link" href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener" title="Open PPSSPP Web repository">
-                <i data-lucide="git-fork"></i><span> GitHub Repo</span>
+              <a class="idle-repo-link" href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener" title="Open PPSSPP Web repository">
+                <i data-lucide="git-fork"></i><span> Source on GitHub</span>
               </a>
             </div>
+            <p class="idle-formats">ISO · CSO · CHD · PBP · ELF · PRX <span>Local files. No upload.</span></p>
           </div>
-          <div class="idle-psp" aria-hidden="true">
-            <div class="idle-psp-screen"></div>
-            <div class="idle-psp-dpad"></div>
-            <div class="idle-psp-buttons"></div>
-            <div class="idle-psp-stick"></div>
-          </div>
+          <figure class="console-photo">
+            <img src="images/psp-3000.webp" alt="Silver Sony PSP-3000 console" width="1200" height="663" fetchpriority="high" decoding="async">
+            <figcaption><span>PSP–3000</span><span>Sony · PlayStation Portable</span></figcaption>
+          </figure>
         </div>
         <a class="idle-powered" href="https://github.com/root-hunter" target="_blank" rel="noopener" title="Powered by root-hunter">
           <span class="idle-powered-dot"></span>
@@ -293,13 +289,17 @@
       <div class="tab-panel" id="tabAbout">
         <div id="aboutPanel">
           <div class="about-hero">
-            <div class="about-mark">PP</div>
+            <img class="about-mark" src="images/ppsspp-icon.png" alt="PPSSPP" width="40" height="40">
             <div>
               <div class="about-title">PPSSPP Web</div>
               <div class="about-subtitle">Unofficial WebAssembly fork maintained for browser play.</div>
             </div>
           </div>
 
+          <div class="info-group">
+            <h3>Photography</h3>
+            <p class="about-text">PSP-3000 photo by <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>. Resized and converted to WebP.</p>
+          </div>
           <div class="info-group">
             <h3>PPSSPP-WASM Fork</h3>
             <div class="about-text">
