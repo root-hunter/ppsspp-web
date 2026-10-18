@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>PPSSPP WASM Ad Hoc protocol probe</title>
+<p>Protocol integration harness. Requires a real PPSSPP build with WASM_ADHOC_TESTS=ON. This does not test gameplay.</p>
+<canvas id="canvas" width="480" height="272"></canvas><pre id="status">Loading real WASM core…</pre>
+<script src="adhoc-transport.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const build = new URL(params.get('build') || '/build-wasm-multiplayer/', location.href);
+const config = { enabled: true, endpoint: new URL('/adhoc', location.href).href, room: 'probe',
+  mac: params.get('mac') || '02:00:00:00:00:01' };
+var Module = {
+  canvas: document.getElementById('canvas'),
+  arguments: [],
+  locateFile: path => new URL(path, build).href,
+  print: () => {}, printErr: line => console.warn(line),
+  preRun: [() => {
+    window.transport = PPSSPPAdhoc.install({ SOCKFS: Module.SOCKFS, FS: Module.FS, config,
+      onstatus: status => document.getElementById('status').textContent = JSON.stringify(status, null, 2) });
+  }],
+  onRuntimeInitialized() {
+    if (!Module._ppssppNetProbe) throw new Error('Compile with WASM_ADHOC_TESTS=ON');
+    window.probe = (...args) => Module._ppssppNetProbe(...args);
+    window.probeByte = (i, value = -1) => Module._ppssppNetProbeByte(i, value);
+    window.writeProbe = data => data.forEach((value, index) => probeByte(index, value));
+    window.readProbe = n => Array.from({ length: n }, (_, i) => probeByte(i));
+    window.probeReady = true;
+  },
+  onAbort: reason => { window.probeError = String(reason); },
+};
+const script = document.createElement('script'); script.src = new URL('PPSSPPSDL.js', build); document.body.append(script);
+</script>

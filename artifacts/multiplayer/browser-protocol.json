@@ -1,0 +1,109 @@
+{
+  "passed": true,
+  "type": "protocol integration; not Tekken gameplay",
+  "realWasm": true,
+  "twoIsolatedContexts": true,
+  "origin": "https://127.0.0.1:8081",
+  "build": "/build-wasm-multiplayer/",
+  "headless": false,
+  "frontend": [
+    {
+      "enabled": true,
+      "hooked": true,
+      "build": "/build-wasm-multiplayer/",
+      "game": "./this.program",
+      "nativeConfig": {
+        "wlan": 1,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": false,
+      "settingsAppliedToCore": true
+    },
+    {
+      "enabled": false,
+      "hooked": false,
+      "build": "/build-wasm-multiplayer/",
+      "game": "/games/cube.cso",
+      "nativeConfig": {
+        "wlan": 0,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": true,
+      "settingsAppliedToCore": true
+    }
+  ],
+  "pdpEchoSamples": 20,
+  "cdpInclusiveRttMs": {
+    "min": 9.042943999999807,
+    "mean": 10.725805199999877,
+    "max": 12.722167999999328
+  },
+  "snapshots": [
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:01",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.3",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:02"
+        }
+      ],
+      "pdpSent": 23,
+      "pdpReceived": 20,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 0.97,
+      "queueBytes": 139,
+      "errors": 1,
+      "lastError": "Relay disconnected",
+      "ptp": [
+        {
+          "port": 15000,
+          "peer": "10.0.0.3",
+          "peerPort": 14000,
+          "state": "waiting"
+        }
+      ],
+      "queueDepth": 1
+    },
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:02",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.2",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:01"
+        }
+      ],
+      "pdpSent": 20,
+      "pdpReceived": 23,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 0.85,
+      "queueBytes": 7,
+      "errors": 0,
+      "lastError": "",
+      "ptp": [
+        {
+          "port": 14000,
+          "peer": null,
+          "peerPort": null,
+          "state": "listening"
+        }
+      ],
+      "queueDepth": 1
+    }
+  ]
+}

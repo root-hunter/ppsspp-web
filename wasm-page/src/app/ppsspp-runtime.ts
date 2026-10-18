@@ -58,7 +58,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-18-mobile-ui-1';
+const RUNTIME_ASSET_VERSION = '2026-10-18-adhoc-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -72,6 +72,7 @@ export class PpssppRuntime {
 
   private async start(): Promise<void> {
     createIcons({ icons: PPSSPP_ICONS });
+    await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
   }
 

@@ -1,0 +1,39 @@
+{
+  "devices": [
+    {
+      "vendorId": 4098,
+      "deviceId": 5686,
+      "vendorString": "",
+      "deviceString": "",
+      "driverVendor": "Mesa",
+      "driverVersion": "26.2.4"
+    },
+    {
+      "vendorId": 4318,
+      "deviceId": 8085,
+      "vendorString": "",
+      "deviceString": "",
+      "driverVendor": "",
+      "driverVersion": ""
+    }
+  ],
+  "renderer": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL 4.6 (Core Profile) Mesa 26.2.4-1ubuntu1)",
+  "features": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled_force",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webgpu_on_vk_via_gl_interop": "enabled",
+    "webnn": "disabled_off"
+  }
+}

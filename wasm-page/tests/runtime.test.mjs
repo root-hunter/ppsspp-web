@@ -151,6 +151,7 @@ test('failed preload never releases the dependency and starts the core without i
   const failures = [], removed = [];
   const noop = () => {};
   const ctx = load(['start'], {
+    loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
@@ -271,6 +272,22 @@ test('performance profile reduces rendering cost without changing framebuffer co
   assert.equal(ctx.applyPerformanceConfig(result), result);
   profile = 'custom';
   assert.equal(ctx.applyPerformanceConfig(original), original);
+});
+
+test('multiplayer uses browser pacing without native lag sleeps or frame skipping, preserving offline and custom profiles', () => {
+  let enabled = true, profile = null;
+  const ctx = load(['applyMultiplayerTimingConfig', 'patchIniValue'], {
+    loadNetworkConfig: () => ({ enabled }), preferences: { getItem: () => profile },
+  });
+  const original = '[General]\nForceLagSync2 = True\n[Graphics]\nFrameSkip = 1\nAutoFrameSkip = True\n';
+  const result = ctx.applyMultiplayerTimingConfig(original);
+  assert.match(result, /ForceLagSync2\s*=\s*False/);
+  assert.match(result, /FrameSkip\s*=\s*0/);
+  assert.match(result, /AutoFrameSkip\s*=\s*False/);
+  enabled = false;
+  assert.equal(ctx.applyMultiplayerTimingConfig(original), original);
+  enabled = true; profile = 'custom';
+  assert.equal(ctx.applyMultiplayerTimingConfig(original), original);
 });
 
 test('steady controller scans leave selector DOM alone while disconnects still update it', () => {

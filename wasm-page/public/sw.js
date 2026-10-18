@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v5";
+const CACHE_VERSION = "ppsspp-angular-v8-adhoc-receive-yield";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -17,6 +17,7 @@ const SHELL_FILES = [
   "./index.html",
   "./manifest.webmanifest",
   "./ppsspp-runtime.js",
+  "./adhoc-transport.js",
 ];
 
 // Extensions considered immutable build artifacts → cache-first

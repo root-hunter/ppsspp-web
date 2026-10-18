@@ -4,21 +4,17 @@ services:
       context: .
       dockerfile: server/Dockerfile
     ports:
-      - "8081:8081"
-      - "27312:27312"
-    user: "${UID:-1000}:${GID:-1000}"
+      - "${PPSSPP_PORT:-8081}:8081"
     volumes:
-      - .:/app
       - ${WASM_ROOT:-./deps/ppsspp-wasm}:/wasm:ro
-    working_dir: /app/server
-    command:
-      - python3
-      - serve.py
-      - --https
-      - --bind
-      - 0.0.0.0
-      - --port
-      - "8081"
-      - --wasm-root
-      - /wasm
-      - --adhoc-ws
+      - relay-tls:/certs
+    environment:
+      RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
+      RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
+      RELAY_LATENCY_MS: ${RELAY_LATENCY_MS:-0}
+      RELAY_JITTER_MS: ${RELAY_JITTER_MS:-0}
+    init: true
+    stop_grace_period: 10s
+    restart: unless-stopped
+volumes:
+  relay-tls:

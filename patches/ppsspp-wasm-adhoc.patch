@@ -1,0 +1,433 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 02ac5f3358..b0bc0462c0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -320,6 +320,11 @@ include_directories(ext/glslang)
+ include_directories(ext/glew)
+ 
+ if(EMSCRIPTEN)
++	option(WASM_ADHOC_TESTS "Export the protocol-level socket integration probe" OFF)
++	if(WASM_ADHOC_TESTS)
++		add_link_options("-sEXPORTED_FUNCTIONS=_main,_ppssppNetProbe,_ppssppNetProbeByte")
++	endif()
++	add_link_options("-sEXPORTED_RUNTIME_METHODS=FS,SOCKFS,ccall,cwrap")
+ 	option(WASM_MAX_PERF "Enable aggressive WebAssembly release optimizations" ON)
+ 	option(WASM_ENABLE_LTO "Enable WebAssembly link-time optimization in release builds" OFF)
+ 	option(WASM_PRELOAD_ASSETS "Package PPSSPP assets into the Emscripten preload data file" ON)
+@@ -1579,6 +1584,9 @@ else()
+ 		SDL/SDLMain.cpp
+ 		SDL/SDLGLGraphicsContext.cpp
+ 	)
++	if(EMSCRIPTEN AND WASM_ADHOC_TESTS)
++		list(APPEND nativeExtra SDL/WasmAdhocProbe.cpp)
++	endif()
+ 	if(NOT USE_LIBNX AND VULKAN)
+ 		list(APPEND nativeExtra
+ 			SDL/SDLVulkanGraphicsContext.cpp
+diff --git a/Core/HLE/proAdhoc.cpp b/Core/HLE/proAdhoc.cpp
+index 17101c5996..6bf0fefd90 100644
+--- a/Core/HLE/proAdhoc.cpp
++++ b/Core/HLE/proAdhoc.cpp
+@@ -22,6 +22,7 @@
+ // All credit goes to him!
+ 
+ #include "ppsspp_config.h"
++#include "Core/HLE/AdhocSocket.h"
+ 
+ #include <algorithm>
+ #include <mutex>
+@@ -78,6 +79,16 @@ char* dummyPeekBuf64k                 = NULL;
+ int dummyPeekBuf64kSize               = 65536;
+ int one                               = 1;
+ std::atomic<bool> friendFinderRunning(false);
++#ifdef __EMSCRIPTEN__
++static std::atomic<bool> wasmReconnectRequested(false);
++extern "C" EMSCRIPTEN_KEEPALIVE int ppssppAdhocReconnect() {
++	if (!friendFinderRunning.load())
++		return -1;
++	wasmReconnectRequested.store(true);
++	return 0;
++}
++#endif
++
+ SceNetAdhocctlPeerInfo * friends      = NULL;
+ SceNetAdhocctlScanInfo * networks     = NULL;
+ SceNetAdhocctlScanInfo * newnetworks  = NULL;
+@@ -1375,6 +1386,12 @@ int friendFinder() {
+ 	// Log Startup
+ 	INFO_LOG(Log::sceNet, "FriendFinder: Begin of Friend Finder Thread");
+ 
++#ifdef __EMSCRIPTEN__
++	// The actual endpoint is a WSS URL owned by the browser adapter. No native
++	// DNS / adapter lookup is involved (AI_ADDRCONFIG is unsupported in SOCKFS).
++	g_adhocServerIP.in.sin_family = AF_INET;
++	inet_pton(AF_INET, "192.0.2.1", &g_adhocServerIP.in.sin_addr);
++#else
+ 	// Resolve and cache AdhocServer DNS
+ 	addrinfo* resolved = nullptr;
+ 	std::string err;
+@@ -1393,11 +1410,33 @@ int friendFinder() {
+ 		}
+ 		net::DNSResolveFree(resolved);
+ 	}
++#endif
+ 	g_adhocServerIP.in.sin_port = htons(SERVER_PORT);
+ 
+ 	// Finder Loop
+ 	friendFinderRunning = true;
+ 	while (friendFinderRunning) {
++#ifdef __EMSCRIPTEN__
++		if (wasmReconnectRequested.exchange(false)) {
++			// Consume the UI request on the socket's owning thread. Rejoin is
++			// deliberately left to the game; an interrupted match cannot resume.
++			if (metasocket != (int)INVALID_SOCKET) {
++				shutdown((int)metasocket, SD_BOTH);
++				closesocket((int)metasocket);
++				metasocket = (int)INVALID_SOCKET;
++			}
++			g_adhocServerConnected = false;
++			peerlock.lock();
++			timeoutFriendsRecursive(friends);
++			peerlock.unlock();
++			rxpos = 0;
++			adhocctlState = ADHOCCTL_STATE_DISCONNECTED;
++			isAdhocctlBusy = false;
++			netAdhocGameModeEntered = false;
++			isAdhocctlNeedLogin = true;
++			notifyAdhocctlHandlers(ADHOCCTL_EVENT_DISCONNECT, 0);
++		}
++#endif
+ 		// Acquire Network Lock
+ 		//_acquireNetworkLock();
+ 
+@@ -1476,6 +1515,22 @@ int friendFinder() {
+ 					//printf("Received %d Bytes of Data from Server\n", received);
+ 					INFO_LOG(Log::sceNet, "Received %d Bytes of Data from Adhoc Server", received);
+ 				}
++#ifdef __EMSCRIPTEN__
++				else if (received == 0 || (received < 0 && socket_errno != EAGAIN && socket_errno != EWOULDBLOCK)) {
++					// A closed browser transport must reach the PSP error path even
++					// when there is no further writable socket / outgoing ping.
++					g_adhocServerConnected = false;
++					shutdown((int)metasocket, SD_BOTH);
++					closesocket((int)metasocket);
++					metasocket = (int)INVALID_SOCKET;
++					peerlock.lock();
++					timeoutFriendsRecursive(friends);
++					peerlock.unlock();
++					rxpos = 0;
++					isAdhocctlBusy = false;
++					notifyAdhocctlHandlers(ADHOCCTL_EVENT_ERROR, SCE_NET_ADHOCCTL_ERROR_DISCONNECTED);
++				}
++#endif
+ 			}
+ 
+ 			// Calculate EnterGameMode Timeout to prevent waiting forever for disconnected players
+@@ -1825,6 +1880,13 @@ int getLocalIp(sockaddr_in* SocketAddress) {
+ 	}
+ #endif // !PPSSPP_PLATFORM(SWITCH)
+ 
++#ifdef __EMSCRIPTEN__
++	// Browser sockets have virtual addresses. Never probe a native adapter or
++	// open a datagram WebSocket to an external DNS server to infer a local IP.
++	inet_pton(AF_INET, "10.255.255.254", &SocketAddress->sin_addr);
++	return 0;
++#endif
++
+ // Fallback if not connected to AdhocServer
+ // getifaddrs first appeared in glibc 2.3, On Android officially supported since __ANDROID_API__ >= 24
+ #if (defined(_IFADDRS_H_) || (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 3) || (__ANDROID_API__ >= 24))
+@@ -2184,7 +2246,7 @@ int initNetwork(SceNetAdhocctlAdhocId *adhoc_id){
+ 	auto n = GetI18NCategory(I18NCat::NETWORKING);
+ 	int iResult = 0;
+ 	metasocket = (int)INVALID_SOCKET;
+-	metasocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++	metasocket = CreateAdhocSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, true);
+ 	if (metasocket == INVALID_SOCKET){
+ 		ERROR_LOG(Log::sceNet, "Invalid socket");
+ 		return SOCKET_ERROR;
+diff --git a/Core/HLE/sceNetAdhoc.cpp b/Core/HLE/sceNetAdhoc.cpp
+index e22d328a34..148e518525 100644
+--- a/Core/HLE/sceNetAdhoc.cpp
++++ b/Core/HLE/sceNetAdhoc.cpp
+@@ -24,6 +24,7 @@
+ #include <string>
+ 
+ #include "Common/Net/SocketCompat.h"
++#include "Core/HLE/AdhocSocket.h"
+ #include "Common/Data/Format/JSONReader.h"
+ #include "Common/Data/Text/I18n.h"
+ #include "Common/File/FileUtil.h"
+@@ -1717,6 +1718,7 @@ static void __AdhocSocketNotify(u64 userdata, int cyclesLate) {
+ 
+ 	case PDP_RECV:
+ 		if (DoBlockingPdpRecv(req, result)) {
++			YieldAdhocReceiveToBrowser();
+ 			// Try again in another 0.5ms until data available or timedout.
+ 			CoreTiming::ScheduleEvent(usToCycles(delayUS) - cyclesLate, adhocSocketNotifyEvent, userdata);
+ 			return;
+@@ -2136,7 +2138,7 @@ int sceNetAdhocPdpCreate(const char *mac, int port, int bufferSize, u32 flag) {
+ 
+ 				// Create Internet UDP Socket
+ 				// Socket is remapped through adhocSockets
+-				int usocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
++				int usocket = CreateAdhocSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+ 				// Valid Socket produced
+ 				if (usocket != INVALID_SOCKET) {
+ 					// Change socket buffer size to be consistent on all platforms.
+@@ -2711,6 +2713,8 @@ int sceNetAdhocPdpRecv(int id, void *addr, void * port, void *buf, void *dataLen
+ 
+ 				// On Windows: recvfrom on UDP can get error WSAECONNRESET when previous sendto's destination is unreachable (or destination port is not bound), may need to disable SIO_UDP_CONNRESET
+ 				if (received == SOCKET_ERROR && (error == EAGAIN || error == EWOULDBLOCK || error == ECONNRESET)) {
++					if (error == EAGAIN || error == EWOULDBLOCK)
++						YieldAdhocReceiveToBrowser();
+ 					if (flag == 0) {
+ 						// Simulate blocking behaviour with non-blocking socket
+ 						u64 threadSocketId = ((u64)__KernelGetCurThread()) << 32 | pdpsocket.id;
+@@ -4137,7 +4141,7 @@ int RecreatePtpSocket(int ptpId) {
+ 
+ 	// Create a new socket
+ 	// Socket is remapped through adhocSockets
+-	int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++	int tcpsocket = CreateAdhocSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+ 
+ 	// Valid Socket produced
+ 	if (tcpsocket < 0)
+@@ -4329,7 +4333,7 @@ static int sceNetAdhocPtpOpen(const char *srcmac, int sport, const char *dstmac,
+ 
+ 				// Create Infrastructure Socket (?)
+ 				// Socket is remapped through adhocSockets
+-				int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++				int tcpsocket = CreateAdhocSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+ 
+ 				// Valid Socket produced
+ 				if (tcpsocket > 0) {
+@@ -5019,7 +5023,7 @@ static int sceNetAdhocPtpListen(const char *srcmac, int sport, int bufsize, int
+ 
+ 				// Create Infrastructure Socket (?)
+ 				// Socket is remapped through adhocSockets
+-				int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++				int tcpsocket = CreateAdhocSocket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+ 
+ 				// Valid Socket produced
+ 				if (tcpsocket > 0) {
+diff --git a/SDL/SDLMain.cpp b/SDL/SDLMain.cpp
+index 5ba71ce0c3..946daa0e51 100644
+--- a/SDL/SDLMain.cpp
++++ b/SDL/SDLMain.cpp
+@@ -79,6 +79,7 @@ SDLJoystick *joystick = NULL;
+ #include "Core/System.h"
+ #include "Core/Core.h"
+ #include "Core/Config.h"
++#include "Core/CoreTiming.h"
+ #include "Core/ConfigValues.h"
+ #include "SDLGLGraphicsContext.h"
+ #if defined(PPSSPP_SDL_HAS_VULKAN)
+@@ -1655,12 +1656,17 @@ extern "C" EMSCRIPTEN_KEEPALIVE void PPSSPP_ToggleFullscreen() {
+ 
+ static void UpdateEmscriptenMainLoopTiming() {
+ #if PPSSPP_WASM_MAIN_LOOP_FPS >= 0
+-	static int lastTimeoutMs = 0;
+ 	const int fps = EmscriptenMainLoopFPS();
+-	const int timeoutMs = std::max(1, (int)(1000.0f / fps));
+-	if (timeoutMs != lastTimeoutMs) {
++	// WebSocket delivery shares this thread with NativeFrame.  A display-rate
++	// callback adds a full frame of delay before the PSP can read a reply.
++	// Keep network callbacks responsive; sceDisplay still paces the PSP clock.
++	const int timeoutMs = g_Config.bEnableWlan ? 4 : std::max(1, (int)(1000.0f / fps));
++	int mode = 0;
++	int interval = 0;
++	emscripten_get_main_loop_timing(&mode, &interval);
++	// SDL_GL_SetSwapInterval can switch the scheduler back to RAF after startup.
++	if (mode != EM_TIMING_SETTIMEOUT || interval != timeoutMs) {
+ 		emscripten_set_main_loop_timing(EM_TIMING_SETTIMEOUT, timeoutMs);
+-		lastTimeoutMs = timeoutMs;
+ 		WASM_TRACE("Emscripten main loop timing timeout=%dms fps=%d", timeoutMs, fps);
+ 	}
+ #endif
+@@ -1679,6 +1685,33 @@ struct EmscriptenMainLoopState {
+ 	int forceGLVersion;
+ };
+ 
++static bool EmscriptenNetworkFrameDue() {
++	static bool tracking = false;
++	static double origin = 0.0;
++	static u64 emulatedOrigin = 0;
++	if (!g_Config.bEnableWlan || !PSP_IsInited() || GetUIState() != UISTATE_INGAME) {
++		tracking = false;
++		return true;
++	}
++	const double now = time_now_d();
++	const u64 emulated = CoreTiming::GetGlobalTimeUs();
++	const double elapsed = emulated >= emulatedOrigin ? (emulated - emulatedOrigin) / 1000000.0 : -1.0;
++	// sleep_precise is a no-op on the browser main thread. Pace against the
++	// emulated clock without blocking WebSocket events, including static menus
++	// where there may be no flips. Reset after pauses, reloads or long stalls.
++	if (!tracking || elapsed < 0.0 || std::abs((now - origin) - elapsed) > 0.1) {
++		tracking = true;
++		origin = now;
++		emulatedOrigin = emulated;
++		return true;
++	}
++	// NativeFrame ends at the next vblank. Start it up to one display period
++	// ahead, rather than waiting until its completion deadline to begin work.
++	// Otherwise adaptive skipping sees every rendered frame as already late.
++	const double frameLead = 1.0 / std::clamp(g_Config.iDisplayRefreshRate, 30, 1000);
++	return elapsed <= now - origin + frameLead;
++}
++
+ static void EmscriptenMainLoop(void *arg) {
+ 	auto *state = (EmscriptenMainLoopState *)arg;
+ 	SDL_Window *window = state->window;
+@@ -1697,7 +1730,7 @@ static void EmscriptenMainLoop(void *arg) {
+ 		emscripten_cancel_main_loop();
+ 		return;
+ 	}
+-	if (emuThreadState == (int)EmuThreadState::DISABLED) {
++	if (emuThreadState == (int)EmuThreadState::DISABLED && EmscriptenNetworkFrameDue()) {
+ 		NativeFrame(graphicsContext);
+ 	}
+ 	if (g_QuitRequested || g_RestartRequested) {
+diff --git a/Core/HLE/AdhocSocket.h b/Core/HLE/AdhocSocket.h
+new file mode 100644
+index 0000000000..c9fcdf2af5
+--- /dev/null
++++ b/Core/HLE/AdhocSocket.h
+@@ -0,0 +1,38 @@
++#pragma once
++
++#include "Common/Net/SocketCompat.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten/threading.h>
++#include "Core/Core.h"
++#endif
++
++// Keep browser transport selection at the Ad Hoc boundary. sceNetInet/HTTP and
++// other emulator sockets retain their normal backend. Native builds are unchanged.
++inline int CreateAdhocSocket(int family, int type, int protocol, bool control = false) {
++	int fd = socket(family, type, protocol);
++#ifdef __EMSCRIPTEN__
++	if (fd >= 0) {
++		MAIN_THREAD_EM_ASM({
++			var sock = Module['SOCKFS'].getSocket($0);
++			if (sock) {
++				sock.__ppssppAdhoc = true;
++				sock.__ppssppControl = !!$1;
++			}
++		}, fd, control);
++	}
++#endif
++	return fd;
++}
++
++// A PSP socket wait must also let the browser deliver WebSocket messages.
++// Ending the host slice does not advance a PSP vblank or change the HLE result.
++// The next slice resumes the same PSP threads and their existing wait requests.
++inline void YieldAdhocReceiveToBrowser() {
++#ifdef __EMSCRIPTEN__
++	if (emscripten_is_main_runtime_thread() && coreState == CORE_RUNNING_CPU && Core_NextFrame()) {
++		// Resume promptly after delivery instead of adding another timer interval.
++		// SDL restores its normal timer at the start of the next callback.
++		emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
++	}
++#endif
++}
+diff --git a/SDL/WasmAdhocProbe.cpp b/SDL/WasmAdhocProbe.cpp
+new file mode 100644
+index 0000000000..8239c1ab1d
+--- /dev/null
++++ b/SDL/WasmAdhocProbe.cpp
+@@ -0,0 +1,93 @@
++// Protocol-level integration probe. Optional; never accesses PSP game memory.
++// Exercises the same Emscripten socket syscalls as the Ad Hoc HLE.
++#ifdef __EMSCRIPTEN__
++#include <emscripten/emscripten.h>
++#include "Core/HLE/AdhocSocket.h"
++#include "Core/Config.h"
++#include "Core/System.h"
++#include "Core/HW/Display.h"
++#include <arpa/inet.h>
++#include <sys/socket.h>
++#include <poll.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <cerrno>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++
++static unsigned char probeBuffer[65536];
++
++extern "C" {
++EMSCRIPTEN_KEEPALIVE int ppssppNetProbe(int op, int fd, uint32_t ip, int port, int value) {
++	sockaddr_in address{};
++	address.sin_family = AF_INET;
++	address.sin_addr.s_addr = htonl(ip);
++	address.sin_port = htons(port);
++	int result = -1;
++	switch (op) {
++	case 0: // fd parameter is SOCK_STREAM (1) / SOCK_DGRAM (2)
++		result = CreateAdhocSocket(AF_INET, fd, 0, value != 0);
++		if (result >= 0) fcntl(result, F_SETFL, O_NONBLOCK);
++		break;
++	case 1: result = bind(fd, (sockaddr *)&address, sizeof(address)); break;
++	case 2: result = connect(fd, (sockaddr *)&address, sizeof(address)); break;
++	case 3: result = listen(fd, value); break;
++	case 4: result = accept(fd, nullptr, nullptr); break;
++	case 5: // Raw buffer populated byte-by-byte by JS, then send through WASM.
++		result = send(fd, probeBuffer, value, 0); break;
++	case 6: result = sendto(fd, probeBuffer, value, 0, (sockaddr *)&address, sizeof(address)); break;
++	case 7:
++		result = recv(fd, probeBuffer, sizeof(probeBuffer), value);
++		break;
++	case 8: result = close(fd); break;
++	case 9: {
++		pollfd pfd{fd, static_cast<short>(value), 0};
++		result = poll(&pfd, 1, 0);
++		if (result >= 0) result = pfd.revents;
++		break;
++	}
++	case 10: {
++		socklen_t size = sizeof(address);
++		result = getsockname(fd, (sockaddr *)&address, &size);
++		if (result == 0) return ntohl(address.sin_addr.s_addr);
++		break;
++	}
++	case 11: return g_Config.bEnableWlan ? 1 : 0;
++	case 12: return snprintf(reinterpret_cast<char *>(probeBuffer), sizeof(probeBuffer), "%s", g_Config.sNickName.c_str());
++	case 13: return snprintf(reinterpret_cast<char *>(probeBuffer), sizeof(probeBuffer), "%s", g_Config.sMACAddress.c_str());
++	case 14: return g_Config.iAdhocServerRelayMode;
++	case 15: return PSP_IsInited() ? 1 : 0;
++	case 16:
++	case 17:
++	case 18: {
++		float vps, fps, actual;
++		__DisplayGetFPS(&vps, &fps, &actual);
++		return static_cast<int>((op == 16 ? vps : op == 17 ? fps : actual) * 1000);
++	}
++	case 19: return g_Config.iCpuCore;
++	case 20:
++		if (value >= 0) g_Config.bForceLagSync = value != 0;
++		return g_Config.bForceLagSync ? 1 : 0;
++	case 21:
++		if (value >= 0) g_Config.bAutoFrameSkip = value != 0;
++		return g_Config.bAutoFrameSkip ? 1 : 0;
++	case 22:
++		if (value >= 0 && value <= 2) g_Config.iFrameSkip = value;
++		return g_Config.iFrameSkip;
++	case 23:
++		if (value >= 0) g_Config.bSoftwareSkinning = value != 0;
++		return g_Config.bSoftwareSkinning ? 1 : 0;
++
++	default: return -EINVAL;
++	}
++	return result < 0 ? -errno : result;
++}
++
++EMSCRIPTEN_KEEPALIVE int ppssppNetProbeByte(int offset, int value) {
++	if (offset < 0 || offset >= static_cast<int>(sizeof(probeBuffer))) return -EINVAL;
++	if (value >= 0 && value <= 255) probeBuffer[offset] = value;
++	return probeBuffer[offset];
++}
++}
++#endif

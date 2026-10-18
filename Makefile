@@ -196,3 +196,16 @@ server-docker-down:
 
 server-docker-logs:
 	docker compose logs -f ppsspp-wasm-server
+
+.PHONY: test-multiplayer test-multiplayer-browser test-wasm-uniform-cache
+test-multiplayer:
+	python3 -m unittest discover -s server/tests -v
+	node wasm-page/tests/adhoc-transport.test.mjs
+	$(MAKE) test-wasm-uniform-cache
+
+test-wasm-uniform-cache:
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -Werror -I deps/ppsspp-wasm scripts/test-wasm-uniform-cache.cpp -o /tmp/ppsspp-test-uniform-cache
+	/tmp/ppsspp-test-uniform-cache
+
+test-multiplayer-browser:
+	node scripts/test-multiplayer-browser.mjs

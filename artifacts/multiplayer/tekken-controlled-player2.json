@@ -1,0 +1,443 @@
+{
+  "player": 1,
+  "tick": 4,
+  "auto": 1,
+  "skip": 1,
+  "samples": [
+    {
+      "vps": 62.24,
+      "actualFPS": 38,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2412,
+        "pdpReceived": 2410,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 1.06,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 59.592,
+      "actualFPS": 35,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2442,
+        "pdpReceived": 2441,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 1.06,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 59.592,
+      "actualFPS": 35,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2470,
+        "pdpReceived": 2471,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 1.06,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 58.156,
+      "actualFPS": 38,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2501,
+        "pdpReceived": 2501,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.87,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 60.527,
+      "actualFPS": 39,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2531,
+        "pdpReceived": 2531,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.87,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 60.206,
+      "actualFPS": 42,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2560,
+        "pdpReceived": 2560,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.87,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 61.703,
+      "actualFPS": 39,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2591,
+        "pdpReceived": 2590,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.87,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 59.213,
+      "actualFPS": 45,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2621,
+        "pdpReceived": 2620,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.87,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 59.792,
+      "actualFPS": 41,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2651,
+        "pdpReceived": 2650,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.81,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 58.601,
+      "actualFPS": 39,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2680,
+        "pdpReceived": 2680,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.81,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 60.278,
+      "actualFPS": 44,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2710,
+        "pdpReceived": 2710,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.81,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 60.413,
+      "actualFPS": 41,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2741,
+        "pdpReceived": 2741,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.81,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 60.646,
+      "actualFPS": 44,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2771,
+        "pdpReceived": 2771,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.81,
+        "queueBytes": 226,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 1
+      }
+    },
+    {
+      "vps": 58.787,
+      "actualFPS": 42,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2800,
+        "pdpReceived": 2800,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.69,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    },
+    {
+      "vps": 60.919,
+      "actualFPS": 42,
+      "net": {
+        "state": "registered",
+        "game": "NPJH50184",
+        "group": "BTLLOBBY",
+        "mac": "02:00:00:00:06:02",
+        "room": "tekken-integration",
+        "peers": [
+          {
+            "ip": "10.0.0.10",
+            "nick": "TekkenWeb1",
+            "mac": "02:00:00:00:06:01"
+          }
+        ],
+        "pdpSent": 2830,
+        "pdpReceived": 2830,
+        "ptpSent": 0,
+        "ptpReceived": 0,
+        "ptpConnections": 0,
+        "rttMs": 0.69,
+        "queueBytes": 0,
+        "errors": 0,
+        "lastError": "",
+        "ptp": [],
+        "queueDepth": 0
+      }
+    }
+  ]
+}

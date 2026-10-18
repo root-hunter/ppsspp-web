@@ -184,7 +184,7 @@
         <div id="networkPanel">
           <div class="info-group">
             <h3>Ad Hoc</h3>
-            <div class="info-row"><span class="info-key">Mode</span> <span class="info-val" id="iNetMode">Browser WebSocket lobby</span></div>
+            <div class="info-row"><span class="info-key">Mode</span> <span class="info-val" id="iNetMode">PSP Ad Hoc relay v1</span></div>
             <div class="info-row"><span class="info-key">Server</span> <span class="info-val" id="iNetServer">&#8212;</span></div>
             <div class="info-row"><span class="info-key">Port</span> <span class="info-val" id="iNetPort">27312</span></div>
           </div>
@@ -193,7 +193,8 @@
               <input type="checkbox" id="networkEnableToggle">
               <span>Enable networking before launch</span>
             </label>
-            <input id="networkServerInput" type="text" spellcheck="false" autocomplete="off" placeholder="Ad hoc server host">
+            <input id="networkServerInput" type="text" spellcheck="false" autocomplete="off" placeholder="wss://example.org/adhoc">
+            <input id="networkRoomInput" type="text" maxlength="32" placeholder="Room (public)" aria-label="Multiplayer room">
             <div class="network-two">
               <input id="networkNickInput" type="text" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Nickname">
               <input id="networkMacInput" type="text" spellcheck="false" autocomplete="off" placeholder="MAC address">
@@ -201,10 +202,13 @@
             <div class="network-actions">
               <button id="networkUseThisHostBtn"><i data-lucide="server"></i> This Host</button>
               <button id="networkTestBtn"><i data-lucide="activity"></i> Test</button>
+              <button id="networkDisconnectBtn">Disconnect</button>
+              <button id="networkReconnectBtn">Reconnect</button>
               <button id="networkSaveBtn"><i data-lucide="save"></i> Save</button>
             </div>
           </div>
-          <div id="networkActivity" class="network-activity">Browser multiplayer uses this page host as the Python relay. Public desktop ad hoc servers like socom.cc do not accept browser sockets directly.</div>
+          <div id="networkActivity" class="network-activity">Enable before launch. Both players need the same game version and room. Create and join sessions in the game's multiplayer menu. Reconnect by leaving and re-entering multiplayer.</div>
+          <details><summary>Live network diagnostics</summary><pre id="networkDiagnostics" aria-live="polite">Core networking idle</pre></details>
         </div>
       </div>
 

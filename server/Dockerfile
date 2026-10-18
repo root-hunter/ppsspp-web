@@ -16,11 +16,16 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY server/serve.py ./server/serve.py
+COPY server/serve.py server/relay.py ./server/
 COPY --from=web-build /web/dist/ppsspp-web ./wasm-page/dist/ppsspp-web
 
 WORKDIR /app/server
 
-EXPOSE 8081 27312
+RUN mkdir -p /certs && chown -R 10001:10001 /certs
+USER 10001:10001
 
-CMD ["python3", "serve.py", "--https", "--bind", "0.0.0.0", "--port", "8081", "--wasm-root", "/wasm", "--adhoc-ws"]
+EXPOSE 8081
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD python3 -c "import ssl,urllib.request; urllib.request.urlopen('https://127.0.0.1:8081/healthz',context=ssl._create_unverified_context(),timeout=2).read()"
+
+CMD ["python3", "serve.py", "--https", "--cert", "/certs/cert.pem", "--key", "/certs/key.pem", "--bind", "0.0.0.0", "--port", "8081", "--wasm-root", "/wasm", "--adhoc-ws"]

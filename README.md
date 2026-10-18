@@ -186,3 +186,7 @@ SDK. Use a fresh CMake build directory if an existing cache refers to a differen
 checkout path or toolchain installation. Development builds also keep LTO disabled.
 A successful compile or emulator UI startup does not establish game-launch
 stability. Re-enabling LTO requires reproducing and resolving the reported freeze.
+
+## Browser multiplayer
+
+The WSS Ad Hoc relay, configuration, protocol tests and Tekken 6 validation checklist are described in [docs/multiplayer.md](docs/multiplayer.md). Transport validation and unverified gameplay criteria are recorded separately in [docs/multiplayer-validation.md](docs/multiplayer-validation.md).
