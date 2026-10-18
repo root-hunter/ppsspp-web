@@ -275,6 +275,15 @@
       <div class="tab-panel" id="tabInfo">
         <div id="infoPanel">
           <div class="info-group">
+            <h3>Performance</h3>
+            <label for="performanceProfile">Startup profile</label>
+            <select id="performanceProfile" class="btn">
+              <option value="performance">Maximum performance (PSP 1×)</option>
+              <option value="custom">Custom graphics settings</option>
+            </select>
+            <p class="about-text">Maximum performance applies native PSP resolution, hardware rendering and disables texture upscaling, MSAA and anisotropic filtering at every startup. Framebuffer effects stay enabled. Reload after changing profile. Custom keeps the current settings; adjust graphics inside PPSSPP to restore higher quality. Per-game settings can override this profile.</p>
+          </div>
+          <div class="info-group">
             <h3>Troubleshooting</h3>
             <p class="about-text">Reports include browser details, graphics/audio settings and recent logs. Download and review before sharing; nothing is sent automatically.</p>
             <div class="diagnostic-actions">

@@ -52,6 +52,27 @@ const WEB_STABILITY_CONFIG = [
   ["General", "IgnoreBadMemAccess", "True"],
   ["CPU", "FastMemoryAccess", "True"],
 ];
+// Keep framebuffer effects and readbacks intact: disabling them breaks games.
+const WEB_PERFORMANCE_CONFIG = [
+  ["Graphics", "InternalResolution", "1"],
+  ["Graphics", "SoftwareRenderer", "False"],
+  ["Graphics", "HardwareTransform", "True"],
+  ["Graphics", "SoftwareSkinning", "True"],
+  ["Graphics", "TexScalingLevel", "1"],
+  ["Graphics", "TexDeposterize", "False"],
+  ["Graphics", "TexHardwareScaling", "False"],
+  ["Graphics", "AnisotropyLevel", "0"],
+  ["Graphics", "MultiSampleLevel", "0"],
+];
+
+function applyPerformanceConfig(text) {
+  if (preferences.getItem("ppsspp_performance_profile") === "custom") return text;
+  for (const [section, key, value] of WEB_PERFORMANCE_CONFIG) {
+    text = patchIniValue(text, section, key, value);
+  }
+  return text;
+}
+
 const MOBILE_TOUCH_CONFIG = [
   ["General", "UIScaleFactor", "3"],
   ["Control", "ShowTouchControls", "True"],
@@ -2394,6 +2415,7 @@ async function forceGamesDirectoryConfig(FS) {
       for (const [section, key, value] of WEB_STABILITY_CONFIG) {
         patched = patchIniValue(patched, section, key, value);
       }
+      patched = applyPerformanceConfig(patched);
       if (applyMobileTouchDefaults) {
         if (!/^\s*InternalResolution\s*=/m.test(patched)) {
           patched = patchIniValue(patched, "Graphics", "InternalResolution", "1");
@@ -3464,7 +3486,8 @@ function log(text, level) {
   const raw = "[" + ts + "] " + text;
   pendingLines.push(buildLineHtml(raw, level || ""));
   if (pendingLines.length > MAX_LOG_LINES) pendingLines.splice(0, pendingLines.length - MAX_LOG_LINES);
-  console.log(raw);
+  // DevTools console retention is expensive during sustained core logging.
+  if (level === "err" || preferences.getItem("ppsspp_verbose_console") === "1") console.log(raw);
   updateAudioDebugFromLog(text);
   if (!logRafId) logRafId = requestAnimationFrame(flushLog);
 }
@@ -4119,10 +4142,11 @@ function rememberGamepad(gp, source, options = {}) {
 function reconcileGamepads(source = "scan", options = {}) {
   const pads = getBrowserGamepads();
   const present = new Set();
+  let added = false;
   for (const gp of pads) {
     if (!gp || gp.connected === false) continue;
     present.add(gp.index);
-    rememberGamepad(gp, source, options);
+    added = rememberGamepad(gp, source, options) || added;
   }
 
   let removed = false;
@@ -4134,7 +4158,7 @@ function reconcileGamepads(source = "scan", options = {}) {
     }
   }
 
-  if (removed || pads.length) updateGamepadSelector();
+  if (removed || added) updateGamepadSelector();
   if (!pads.length && options.verbose)
     log("GAMEPAD: no controller detected. Press a button once if the browser is hiding it.", "warn");
   return pads.length;
@@ -4158,7 +4182,7 @@ function startSmartGamepadPolling() {
   if (gamepadPollTimer || !navigator.getGamepads) return;
   reconcileGamepads("startup scan");
   gamepadPollTimer = setInterval(() => {
-    reconcileGamepads("runtime scan", { refreshSDL: true });
+    if (!document.hidden) reconcileGamepads("runtime scan", { refreshSDL: true });
   }, GAMEPAD_POLL_MS);
 }
 
@@ -4269,6 +4293,8 @@ function probeWebGLFeaturesWithPref(powerPreference) {
     gpuBadge.className   = "badge active";
     gpuBadge.title       = "[" + powerPreference + "]\n" + renderer + "\n" + vendor + "\n" + version + "\nGLSL: " + glslVer + "\nMaxTex: " + maxTex + "  MaxAniso: " + maxAniso + "\nstencil_texturing: " + hasStencil + "  multi_draw: " + hasMultiDraw;
   }
+  // The probe is disposable; release its GPU resources before starting SDL.
+  gl.getExtension("WEBGL_lose_context")?.loseContext();
 }
 
 function probeWebGLFeatures() { probeWebGLFeaturesWithPref(gpuSelectEl?.value || "high-performance"); }
@@ -4510,6 +4536,15 @@ panelTabSelect?.addEventListener("change", e => activatePanelTab(e.currentTarget
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => activatePanelTab(tab.dataset.tab));
 });
+
+const performanceProfileSelect = byId("performanceProfile");
+if (performanceProfileSelect) {
+  performanceProfileSelect.value = preferences.getItem("ppsspp_performance_profile") === "custom" ? "custom" : "performance";
+  performanceProfileSelect.addEventListener("change", () => {
+    preferences.setItem("ppsspp_performance_profile", performanceProfileSelect.value);
+    showToast("Performance profile saved. Reload to apply at startup.");
+  });
+}
 
 /* ── FPS counter ────────────────────────────────────────────────── */
 let fpsFrames = 0, fpsLast = performance.now();

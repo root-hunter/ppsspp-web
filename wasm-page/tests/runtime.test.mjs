@@ -253,3 +253,39 @@ test('startup rejects a partial core instead of loading mismatched JS/WASM/data'
   });
   await assert.rejects(ctx.selectBuildDir(), /Emulator files are missing/);
 });
+
+test('performance profile reduces rendering cost without changing framebuffer compatibility or CPU timing', () => {
+  const config = ast.statements.find(n => ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText(ast) === 'WEB_PERFORMANCE_CONFIG')).getText(ast);
+  let profile = null;
+  const ctx = load(['applyPerformanceConfig', 'patchIniValue'], {
+    preferences: { getItem: () => profile },
+  }, config);
+  const original = '[Graphics]\nInternalResolution = 4\nSkipBufferEffects = False\nFrameSkip = 0\n[CPU]\nCPUCore = 3\n';
+  const result = ctx.applyPerformanceConfig(original);
+  assert.match(result, /InternalResolution\s*=\s*1/);
+  assert.match(result, /HardwareTransform\s*=\s*True/);
+  assert.match(result, /AnisotropyLevel\s*=\s*0/);
+  assert.match(result, /SkipBufferEffects = False/);
+  assert.match(result, /FrameSkip = 0/);
+  assert.match(result, /CPUCore = 3/);
+  assert.equal(ctx.applyPerformanceConfig(result), result);
+  profile = 'custom';
+  assert.equal(ctx.applyPerformanceConfig(original), original);
+});
+
+test('steady controller scans leave selector DOM alone while disconnects still update it', () => {
+  let updates = 0;
+  let pads = [{ index: 0, connected: true }];
+  const ctx = load(['reconcileGamepads'], {
+    getBrowserGamepads: () => pads,
+    connectedGamepads: new Map([[0, { id: 'pad' }]]),
+    rememberGamepad: () => false,
+    updateGamepadSelector: () => updates++, log() {},
+  });
+  ctx.reconcileGamepads(); ctx.reconcileGamepads();
+  assert.equal(updates, 0);
+  pads = [];
+  ctx.reconcileGamepads();
+  assert.equal(updates, 1);
+  assert.equal(ctx.connectedGamepads.size, 0);
+});

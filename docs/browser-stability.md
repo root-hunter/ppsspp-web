@@ -48,3 +48,28 @@ For a decoder smoke test, generate a three-frame blue 480x272 H.264 video with a
 - The updated Angular UI passed the browser import/reset/diagnostic checks. The new LTO core booted and rendered `cube.pbp` in Chrome/SwiftShader; AudioContext reached running state.
 - The static Pages artifact was packaged with the matched new JS/WASM/data revision. CI and the Docker UI stage now pin the documented toolchain versions. The CI deployment and Docker image build were not run locally.
 - This establishes build/startup compatibility, not a measured gameplay FPS improvement. Commercial-game/device compatibility remains subject to the tests above.
+
+## Browser performance profile (2026-10-18)
+
+System → Startup profile defaults to Maximum performance on mobile and desktop.
+It applies PSP 1× resolution, hardware rendering/transform, software skinning,
+1× texture scaling, no deposterization/hardware texture scaling, no MSAA and no
+anisotropic filtering on startup. These keys were checked against Core/Config.cpp.
+Per-game INI overrides still take precedence. Custom stops applying the profile;
+it retains current values, so change graphics in PPSSPP to restore higher quality.
+Framebuffer effects, readbacks, depth/stencil, CPU clock and frame skipping are
+unchanged to preserve compatibility. Existing timing/audio policies still apply.
+
+The shell no longer rebuilds the controller selector when its device list is
+unchanged, skips discovery polling in hidden tabs and releases the temporary GPU
+probe context. Logs remain in the bounded diagnostic buffer; console mirroring
+is limited to errors unless `ppsspp_verbose_console=1` is set in localStorage.
+The core already builds with SIMD, pthreads, O3 and release LTO via the web Makefile.
+No core rebuild is required for these shell changes.
+
+Validation: 23 runtime tests and the production Angular build passed. No gameplay
+FPS gain is claimed. Compare the same save/scene, browser, GPU, core revision and
+power mode after warmup, using PPSSPP's FPS/speed display and audio underruns.
+The shell's “Hz · browser” measures browser callbacks, not emulated frames.
+For CPU/GPU attribution, capture a browser Performance trace of that same scene;
+1× rendering primarily reduces GPU work and cannot remove a CPU emulation bottleneck.
