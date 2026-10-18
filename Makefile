@@ -16,7 +16,7 @@ PORT ?= 8081
 CMAKE ?= $(or $(wildcard /usr/bin/cmake),cmake)
 WASM_JOBS ?= -j4
 WASM_FFMPEG_JOBS ?= 4
-WASM_ENABLE_LTO ?= ON
+WASM_ENABLE_LTO ?= OFF
 WASM_FFMPEG_DIR := $(abspath $(WASM_ROOT)/build-ffmpeg-wasm/install)
 ifeq ($(PAGES_WASM_BUILD),dev)
 PAGES_WASM_DIR := $(WASM_ROOT)/build-wasm
