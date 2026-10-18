@@ -1,9 +1,9 @@
-FROM node:22-alpine AS web-build
+FROM node:24.22.0-alpine AS web-build
 
 WORKDIR /web
 
 COPY wasm-page/package*.json ./
-RUN npm ci
+RUN npm install --global npm@12.2.0 && npm ci
 
 COPY wasm-page ./
 RUN npm run build:pages

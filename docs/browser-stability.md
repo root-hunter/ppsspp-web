@@ -39,3 +39,12 @@ For a decoder smoke test, generate a three-frame blue 480x272 H.264 video with a
 - Headless Chrome with SwiftShader booted and rendered the bundled `pspautotests/demos/cube.pbp` for over one minute; AudioContext reached running state and configuration was persisted. A simulated context-loss event displayed recovery. This demo does not validate audible game audio.
 - Browser integration with localStorage denied imported a native save folder, reset a bad settings file with a backup, retained the save marker and exported a report without save contents.
 - No commercial game compatibility or numerical gameplay speedup has been verified in this workspace. Galaxy A56, Brave and Edge remain device/browser test targets.
+
+## Toolchain upgrade validation (2026-10-18)
+
+- Angular/CLI/build/compiler 22.2.3, Lucide 1.59.0 and TypeScript 6.0.3; the official Angular migration ran and unused `baseUrl` was removed for TypeScript 6. Strict checks remain enabled.
+- Node 24.22.0 LTS and npm 12.2.0 passed the 21 runtime tests and production UI build. Dependency installation/audit reported zero known vulnerabilities after compatible transitive patch updates.
+- Emscripten 6.0.12 rebuilt FFmpeg and the complete Release core with LTO, SIMD and pthreads. The H.264 decoder smoke test passed with the new SDK.
+- The updated Angular UI passed the browser import/reset/diagnostic checks. The new LTO core booted and rendered `cube.pbp` in Chrome/SwiftShader; AudioContext reached running state.
+- The static Pages artifact was packaged with the matched new JS/WASM/data revision. CI and the Docker UI stage now pin the documented toolchain versions. The CI deployment and Docker image build were not run locally.
+- This establishes build/startup compatibility, not a measured gameplay FPS improvement. Commercial-game/device compatibility remains subject to the tests above.

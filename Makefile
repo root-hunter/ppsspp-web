@@ -16,6 +16,7 @@ PORT ?= 8081
 CMAKE ?= $(or $(wildcard /usr/bin/cmake),cmake)
 WASM_JOBS ?= -j4
 WASM_FFMPEG_JOBS ?= 4
+WASM_ENABLE_LTO ?= ON
 WASM_FFMPEG_DIR := $(abspath $(WASM_ROOT)/build-ffmpeg-wasm/install)
 ifeq ($(PAGES_WASM_BUILD),dev)
 PAGES_WASM_DIR := $(WASM_ROOT)/build-wasm
@@ -43,6 +44,7 @@ help:
 	@echo "  LOCAL_WASM_ROOT=$(LOCAL_WASM_ROOT)"
 	@echo "  WASM_BRANCH=$(WASM_BRANCH)"
 	@echo "  PAGES_WASM_BUILD=$(PAGES_WASM_BUILD)"
+	@echo "  WASM_ENABLE_LTO=$(WASM_ENABLE_LTO)"
 
 app-install:
 	npm --prefix $(APP_DIR) install
@@ -103,7 +105,7 @@ wasm-release:
 	git config --global --add safe.directory "$(abspath $(WASM_ROOT))" || true
 	$(MAKE) wasm-ffmpeg WASM_ROOT="$(WASM_ROOT)"
 	$(MAKE) -C $(WASM_ROOT) wasm-release-config CMAKE=$(CMAKE)
-	emcmake $(CMAKE) -S "$(WASM_ROOT)" -B "$(WASM_ROOT)/build-wasm-release" -DUSE_FFMPEG=ON -DFFMPEG_DIR="$(WASM_FFMPEG_DIR)"
+	emcmake $(CMAKE) -S "$(WASM_ROOT)" -B "$(WASM_ROOT)/build-wasm-release" -DWASM_ENABLE_LTO=$(WASM_ENABLE_LTO) -DUSE_FFMPEG=ON -DFFMPEG_DIR="$(WASM_FFMPEG_DIR)"
 	$(MAKE) -C $(WASM_ROOT) wasm-release-build CMAKE=$(CMAKE) WASM_JOBS="$(WASM_JOBS)"
 	rm -rf build-wasm-release assets
 	ln -s $(WASM_ROOT)/build-wasm-release build-wasm-release

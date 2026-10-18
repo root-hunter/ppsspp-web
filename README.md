@@ -131,3 +131,42 @@ for the user-report backlog, recovery tools and the device test procedure.
 npm --prefix wasm-page test
 bash scripts/test-ffmpeg-wasm.sh
 ```
+
+## Toolchain versions
+
+The UI uses Angular 22.2.3, Lucide 1.59.0 and TypeScript 6.0.3. TypeScript stays
+on the latest Angular-compatible release: Angular 22 requires `>=6.0 <6.1`, so
+TypeScript 7 is not enabled. See the [Angular compatibility table](https://angular.dev/reference/versions).
+
+Node 24.22.0 LTS is pinned in `.nvmrc`; npm 12.2.0 is pinned in the app's
+`packageManager` field. CI and the Docker UI build use the same versions.
+With nvm installed, prepare the UI environment from the repository root:
+
+```sh
+nvm install
+nvm use
+npm install --global npm@12.2.0
+npm --prefix wasm-page ci
+```
+
+Emscripten 6.0.12 is pinned in `.emscripten-version` and the CI container. To
+activate it in an existing [emsdk installation](https://emscripten.org/docs/getting_started/downloads.html):
+
+```sh
+emsdk install "$(cat .emscripten-version)"
+emsdk activate "$(cat .emscripten-version)"
+# Source the emsdk_env.sh from that installation in the current shell.
+emcc --version
+```
+
+Release builds enable LTO alongside `-O3`, SIMD and pthreads. LTO permits
+optimizations across compilation units and increases link time; it does not
+establish a gameplay FPS improvement by itself. To disable it for comparison:
+
+```sh
+make wasm-release WASM_ENABLE_LTO=OFF
+```
+
+After changing the compiler, rebuild FFmpeg and the core with the same active
+SDK. Use a fresh CMake build directory if an existing cache refers to a different
+checkout path or toolchain installation. Development builds keep LTO disabled.

@@ -20,7 +20,7 @@ jobs:
     name: Build PPSSPP Web
     runs-on: ubuntu-latest
     container:
-      image: emscripten/emsdk:5.0.7
+      image: emscripten/emsdk:6.0.12
 
     steps:
       - name: Checkout
@@ -49,6 +49,16 @@ jobs:
 
       - name: Build release
         run: make wasm-release WASM_ROOT=ppsspp-wasm-src CMAKE=/usr/bin/cmake WASM_JOBS="-j$(nproc)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: wasm-page/package-lock.json
+
+      - name: Install npm
+        run: npm install --global npm@12.2.0
 
       - name: Install Angular dependencies
         run: npm --prefix wasm-page ci
