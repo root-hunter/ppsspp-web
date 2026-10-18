@@ -51,9 +51,13 @@
   </header>
 
   <div class="body-main">
-    <div class="fullscreen-toolbar" role="group" aria-label="Fullscreen controls">
-      <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i> Panel</button>
-      <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
+    <button id="fsMenuBackdrop" class="fullscreen-menu-backdrop" type="button" aria-label="Close game menu" tabindex="-1" hidden></button>
+    <div class="fullscreen-toolbar">
+      <button id="fsMenuToggle" type="button" aria-label="Game menu" aria-controls="fsMenuActions" aria-expanded="false" title="Game menu"><span aria-hidden="true">···</span></button>
+      <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="Game controls" hidden>
+        <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i> Settings &amp; library</button>
+        <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
+      </div>
     </div>
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>

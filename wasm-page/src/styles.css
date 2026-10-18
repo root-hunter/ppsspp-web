@@ -181,10 +181,38 @@ select.btn option { background: var(--surface2); }
 }
 .body-main:fullscreen .fullscreen-toolbar,
 .body-main:-webkit-full-screen .fullscreen-toolbar {
-  position: absolute; top: max(8px, env(safe-area-inset-top));
-  left: max(8px, env(safe-area-inset-left)); z-index: 190;
-  display: flex; gap: 8px;
+  position: absolute; top: max(6px, env(safe-area-inset-top));
+  left: 50%; transform: translateX(-50%); z-index: 190;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
+#fsMenuToggle {
+  width: 48px; height: 44px; min-width: 48px; padding: 0;
+  border: 0; background: transparent; box-shadow: none;
+  color: #eceef1; touch-action: manipulation;
+}
+#fsMenuToggle span {
+  display: grid; place-items: center; width: 36px; height: 24px;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 20px;
+  background: rgba(20,22,26,.6); font: 700 22px/1 system-ui;
+}
+#fsMenuToggle:active { transform: none; }
+#fsMenuToggle:focus-visible span { outline: 2px solid var(--accent); outline-offset: 3px; }
+.fullscreen-actions {
+  display: grid; gap: 4px; padding: 6px; width: 208px;
+  max-width: calc(100vw - 24px); border: 1px solid var(--border2);
+  border-radius: 12px; background: var(--surface); box-shadow: var(--shadow);
+}
+.fullscreen-actions button {
+  justify-content: flex-start; height: 44px; padding: 0 12px;
+  font-size: 13px; border: 0; background: transparent;
+}
+.fullscreen-menu-backdrop {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 189;
+  padding: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.16);
+}
+.fullscreen-actions[hidden], .fullscreen-menu-backdrop[hidden] { display: none; }
+body.panel-open .body-main .fullscreen-toolbar { display: none; }
+
 
 /* ── Stage (canvas area) ─────────────────────────────── */
 .stage {
@@ -639,38 +667,56 @@ body.panel-open #panelBackdrop { display: block; }
   }
   body.panel-open .body-main { grid-template-columns: 1fr; }
   body.panel-open aside {
-    position: fixed;
-    top: auto; width: auto;
-    bottom: 0; left: 0; right: 0; z-index: 200;
-    height: min(calc(var(--app-h) * .72), calc(var(--app-h) - 72px));
-    max-height: calc(var(--app-h) - env(safe-area-inset-top) - 12px);
-    border-left: none;
-    border-top: 1px solid var(--border2);
-    box-shadow: 0 -12px 40px rgba(0,0,0,.7);
-    border-radius: 12px 12px 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
-    display: flex; flex-direction: column;
-    background: rgba(15,19,24,.98);
-    backdrop-filter: blur(16px);
-    /* override grid to flex for flex-based scroll chain */
-    grid-template-rows: none;
-    overflow: hidden;
+    position: absolute; inset: max(16px, 6vh) 0 0;
+    width: 100%; height: auto; max-height: 100%;
+    display: grid; grid-template-rows: auto auto minmax(0, 1fr);
+    border: 1px solid var(--border2); border-bottom: 0;
+    border-radius: 18px 18px 0 0; background: var(--surface);
+    box-shadow: 0 -12px 40px rgba(0,0,0,.45);
+    padding: 0 0 env(safe-area-inset-bottom); overflow: hidden;
   }
   body.keyboard-open.panel-open aside {
-    top: max(8px, env(safe-area-inset-top));
-    bottom: auto;
-    height: max(1px, calc(var(--visual-h) - env(safe-area-inset-top) - 8px));
-    max-height: max(1px, calc(var(--visual-h) - env(safe-area-inset-top) - 8px));
-    border-radius: 12px 12px 0 0;
+    position: fixed; inset: max(8px, env(safe-area-inset-top)) 0 auto;
+    height: calc(var(--visual-h) - max(8px, env(safe-area-inset-top)));
+    max-height: calc(var(--visual-h) - max(8px, env(safe-area-inset-top)));
   }
-  /* Ensure flex chain allows tab content to scroll in portrait drawer */
-  body.panel-open aside .tab-panel { flex: 1; min-height: 0; overflow: hidden; }
-  body.panel-open aside .tab-panel.active { display: flex; flex-direction: column; min-height: 0; }
-  body.panel-open aside::before {
-    content: ''; display: block; width: 36px; height: 4px;
-    background: var(--border2); border-radius: 2px;
-    margin: 8px auto 4px;
-    flex-shrink: 0;
+  body.panel-open aside .tab-panel.active {
+    display: block; min-height: 0; overflow: auto;
+    overscroll-behavior: contain; touch-action: pan-y pinch-zoom;
+    -webkit-overflow-scrolling: touch; scrollbar-gutter: stable;
+    scroll-padding: 16px;
+  }
+  /* Each section has one scroll container, including long save/file lists. */
+  #sidePanel :is(#libraryPanel, #savesPanel, #drivePanel, #storagePanel, #infoPanel,
+    #aboutPanel, #networkPanel, #savesList, #opfsFileList, #driveRemoteList, .network-activity) {
+    min-height: 0; max-height: none; height: auto; overflow: visible; flex: none;
+  }
+  #sidePanel :is(#infoPanel, #aboutPanel, #networkPanel, #drivePanel, #storagePanel) {
+    font-size: 13px; line-height: 1.6;
+  }
+  #sidePanel .library-toolbar { position: static; }
+  #sidePanel #logPanel { overflow: visible; }
+  #sidePanel #log { position: static; overflow: visible; min-height: 100px; }
+  #sidePanel .status-bar { align-items: center; gap: 10px; min-height: 52px; padding: 6px 14px; }
+  #sidePanel #statusText { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #sidePanel #panelCloseBtn { width: 44px; height: 44px; min-width: 44px; }
+  #sidePanel .panel-tab-select-wrap { padding: 4px 14px 12px; }
+  #sidePanel .panel-tab-select { height: 44px; }
+  /* 16px form text avoids automatic focus zoom on iOS without disabling zoom. */
+  #sidePanel :is(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+    font-size: 16px; min-height: 44px; min-width: 0; max-width: 100%;
+  }
+  #sidePanel button { min-height: 44px; }
+  #sidePanel .network-toggle { min-height: 44px; }
+  #sidePanel input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; }
+  #sidePanel .drive-file-row { grid-template-columns: minmax(0, 1fr) auto 44px; }
+  #sidePanel .info-row { gap: 12px; }
+  #sidePanel :is(.info-key, .info-val) { font-size: 12px; }
+  #sidePanel .info-key { flex-shrink: 1; }
+  #sidePanel .info-val { min-width: 0; overflow-wrap: anywhere; }
+  #sidePanel :is(.library-toolbar, .saves-toolbar, .drive-actions) { gap: 8px; }
+  #sidePanel :is(.library-toolbar, .saves-toolbar, .drive-actions) :is(button, label.btn) {
+    min-height: 44px; font-size: 12px;
   }
 
   /* Hide GPU select on tiny screens */
@@ -819,72 +865,18 @@ body.panel-open #panelBackdrop { display: block; }
     gap: 4px;
   }
   body.panel-open aside {
-    left: auto;
-    top: var(--h);
-    width: min(360px, 48vw);
-    height: calc(var(--app-h) - var(--h));
-    max-height: none;
-    border-radius: 0;
-    border-top: none;
-    border-left: 1px solid var(--border2);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-    grid-template-rows: none;
+    inset: 0 0 0 auto; width: min(420px, 56vw); height: 100%;
+    max-height: 100%; border-radius: 0; border-top: 0;
+    padding-right: env(safe-area-inset-right);
   }
   body.keyboard-open.panel-open aside {
-    top: var(--h);
-    bottom: auto;
-    height: max(1px, calc(var(--visual-h) - var(--h)));
-    max-height: max(1px, calc(var(--visual-h) - var(--h)));
-  }
-  body.panel-open aside::before { display: none; }
-  body.browser-fullscreen.panel-open aside {
-    top: 0; height: var(--app-h);
+    top: var(--h); height: calc(var(--visual-h) - var(--h));
+    max-height: calc(var(--visual-h) - var(--h));
   }
   body.browser-fullscreen.keyboard-open.panel-open aside {
-    height: var(--visual-h);
-    max-height: var(--visual-h);
+    top: 0; height: var(--visual-h); max-height: var(--visual-h);
   }
-  /* In landscape the aside is flex-column — ensure every child shrinks correctly */
-  body.panel-open aside .status-bar {
-    min-height: 0; padding: 5px 10px; font-size: 10.5px;
-  }
-  body.panel-open aside .panel-tab-select-wrap {
-    padding: 4px 10px;
-  }
-  body.panel-open aside .tabs {
-    flex-shrink: 0;
-  }
-  /* tab-panel must fill remaining space and scroll */
-  body.panel-open aside .tab-panel.active {
-    flex: 1; min-height: 0; overflow: hidden;
-  }
-  /* Compact toolbar in landscape: single flex row, no 2-col grid */
-  body.panel-open aside .library-toolbar,
-  body.panel-open aside .saves-toolbar,
-  body.panel-open aside .drive-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 6px 10px;
-  }
-  body.panel-open aside .library-toolbar button,
-  body.panel-open aside .library-toolbar label.btn,
-  body.panel-open aside .saves-toolbar button,
-  body.panel-open aside .saves-toolbar label.btn,
-  body.panel-open aside .drive-actions button {
-    height: 30px;
-    width: auto;
-    min-width: 0;
-    flex: 0 1 auto;
-    padding: 0 8px;
-    font-size: 10.5px;
-  }
-  body.panel-open aside #libraryUrlInput {
-    height: 30px;
-    flex: 1 1 100px;
-    font-size: 10.5px;
-  }
+
 }
 @media (max-width: 400px) {
   button, label.btn, a.btn { padding: 0 8px; }
@@ -1010,13 +1002,13 @@ button.danger:hover { background: rgba(255,95,95,.1); border-color: var(--danger
   color: var(--text); font-size: 12px;
 }
 .network-toggle input { accent-color: var(--accent); width: 14px; height: 14px; }
-.network-config input {
+.network-config input:not([type="checkbox"]) {
   width: 100%; height: 30px; min-width: 0;
   background: var(--bg); border: 1px solid var(--border2);
   border-radius: var(--radius-sm); color: var(--text);
   font: 11.5px/1 inherit; padding: 0 9px; outline: none;
 }
-.network-config input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+.network-config input:not([type="checkbox"]):focus { border-color: var(--accent); box-shadow: var(--glow); }
 .network-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 8px; }
 .network-actions { display: flex; gap: 8px; }
 .network-actions button { flex: 1; height: 30px; font-size: 11px; }

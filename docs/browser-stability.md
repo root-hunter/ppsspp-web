@@ -106,3 +106,18 @@ published artifact revisions and tests of both direct and in-emulator game launc
 The initial artifact launched locally on Chrome/AMD; the reported freeze remains
 unreproduced in that environment. The user confirmed that the later non-LTO
 online build restored launching.
+
+## Mobile fullscreen controls and panels
+
+Tap the small “···” button in fullscreen to access Settings & library or Exit
+fullscreen. Tap outside the menu to dismiss it. Opening the panel hides these
+controls; its close button remains available. On mobile, the panel starts closed
+regardless of a previously saved desktop panel preference.
+
+Each mobile panel section uses one touch-scroll area beneath its fixed status
+and section controls. Form text is at least 16px to avoid iOS focus zoom without
+disabling pinch zoom. Portrait uses a bottom sheet; short landscape uses a side
+drawer. Opening either leaves the game canvas dimensions unchanged.
+
+Chrome touch emulation checks passed at 390×844, 844×390 and 667×375, alongside
+1440×900 desktop checks. Physical iOS/Safari behavior remains unverified.

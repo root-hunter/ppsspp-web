@@ -387,14 +387,18 @@ const netPortEl           = byId("iNetPort");
 const PANEL_KEY = "ppsspp_panel_open";
 function setPanelOpen(open, focus = true) {
   document.body.classList.toggle("panel-open", open);
+  if (open) setFullscreenMenuOpen(false, false);
+  const stage = document.querySelector(".stage");
+  if (stage) stage.inert = open;
   preferences.setItem(PANEL_KEY, open ? "1" : "0");
   for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
   if (focus) {
-    const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsPanelBtn") : panelToggleBtn;
-    target?.focus();
+    const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsMenuToggle") : panelToggleBtn;
+    target?.focus({ preventScroll: true });
   }
 }
-setPanelOpen(preferences.getItem(PANEL_KEY) === "1", false);
+// A saved desktop drawer should not cover the game on the next mobile visit.
+setPanelOpen(!isMobileExperience() && preferences.getItem(PANEL_KEY) === "1", false);
 on(panelToggleBtn, "click", () => {
   setPanelOpen(!document.body.classList.contains("panel-open"));
 });
@@ -5162,6 +5166,7 @@ async function exitBrowserFullscreen() {
 }
 
 function handleFullscreenChange() {
+  setFullscreenMenuOpen(false, false);
   syncFullscreenOverlays();
   scheduleRuntimeResize(true);
   if (fullscreenElement()) {
@@ -5206,8 +5211,37 @@ on(fullscreenBtn, "click", async () => {
   canvas?.focus();
   describeAudio();
 });
+function setFullscreenMenuOpen(open, focus = true) {
+  const toggle = byId("fsMenuToggle");
+  toggle?.setAttribute("aria-expanded", String(open));
+  for (const id of ["fsMenuActions", "fsMenuBackdrop"]) {
+    const element = byId(id);
+    if (element) element.hidden = !open;
+  }
+  if (focus) (open ? byId("fsPanelBtn") : toggle)?.focus({ preventScroll: true });
+}
+on("fsMenuToggle", "click", () => setFullscreenMenuOpen(byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true"));
+on("fsMenuBackdrop", "click", () => setFullscreenMenuOpen(false));
+document.addEventListener("keydown", event => {
+  const panelOpen = document.body.classList.contains("panel-open");
+  const menuOpen = byId("fsMenuToggle")?.getAttribute("aria-expanded") === "true";
+  if (!panelOpen && !menuOpen) return;
+  if (event.key === "Escape") {
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (panelOpen) setPanelOpen(false); else setFullscreenMenuOpen(false);
+  } else if (event.key === "Tab") {
+    const container = byId(panelOpen ? "sidePanel" : "fsMenuActions");
+    const controls = [...(container?.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]') || [])]
+      .filter(element => !element.disabled && element.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (first && (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      event.preventDefault(); (event.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  }
+}, true);
 on("fsPanelBtn", "click", () => setPanelOpen(!document.body.classList.contains("panel-open")));
 on("fsExitBtn", "click", async () => {
+  setFullscreenMenuOpen(false, false);
   await exitBrowserFullscreen();
   fullscreenBtn?.focus();
 });

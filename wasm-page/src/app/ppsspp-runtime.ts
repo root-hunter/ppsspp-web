@@ -58,7 +58,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-18-performance-1';
+const RUNTIME_ASSET_VERSION = '2026-10-18-mobile-ui-1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
