@@ -100,3 +100,9 @@ before testing a deployed build. Earlier LTO build, homebrew and profiling
 results in this document describe limited historical checks and do not resolve
 the reported freeze. Reproduce the same game, browser and toolchain with and
 without LTO before attributing the failure to a specific compiler optimization.
+
+The [CI freeze investigation](ci-game-launch-investigation.md) records the two
+published artifact revisions and tests of both direct and in-emulator game launch.
+The initial artifact launched locally on Chrome/AMD; the reported freeze remains
+unreproduced in that environment. The user confirmed that the later non-LTO
+online build restored launching.
