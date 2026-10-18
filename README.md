@@ -173,9 +173,9 @@ emsdk activate "$(cat .emscripten-version)"
 emcc --version
 ```
 
-Release builds enable LTO alongside `-O3`, SIMD and pthreads. LTO permits
-optimizations across compilation units and increases link time; it does not
-establish a gameplay FPS improvement by itself. To disable it for comparison:
+Release builds use `-O3`, SIMD and pthreads with **LTO disabled by default**.
+Game launch was reported to freeze the entire page with LTO enabled, even though
+the emulator UI started successfully. Keep LTO disabled for normal builds:
 
 ```sh
 make wasm-release WASM_ENABLE_LTO=OFF
@@ -183,4 +183,6 @@ make wasm-release WASM_ENABLE_LTO=OFF
 
 After changing the compiler, rebuild FFmpeg and the core with the same active
 SDK. Use a fresh CMake build directory if an existing cache refers to a different
-checkout path or toolchain installation. Development builds keep LTO disabled.
+checkout path or toolchain installation. Development builds also keep LTO disabled.
+A successful compile or emulator UI startup does not establish game-launch
+stability. Re-enabling LTO requires reproducing and resolving the reported freeze.

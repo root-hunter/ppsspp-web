@@ -1,0 +1,911 @@
+{
+  "durationMs": 15003.054999992251,
+  "stats": {
+    "activeTexture": {
+      "calls": 9900,
+      "ms": 23.965000331401825
+    },
+    "attachShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "beginQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "beginTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindAttribLocation": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindBufferBase": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindBufferRange": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindRenderbuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindSampler": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindVertexArray": {
+      "calls": 0,
+      "ms": 0
+    },
+    "blendColor": {
+      "calls": 0,
+      "ms": 0
+    },
+    "blendEquation": {
+      "calls": 0,
+      "ms": 0
+    },
+    "blendEquationSeparate": {
+      "calls": 1538,
+      "ms": 4.384999990463257
+    },
+    "blendFunc": {
+      "calls": 0,
+      "ms": 0
+    },
+    "blendFuncSeparate": {
+      "calls": 1538,
+      "ms": 4.135000258684158
+    },
+    "blitFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bufferData": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bufferSubData": {
+      "calls": 3600,
+      "ms": 18.660000383853912
+    },
+    "checkFramebufferStatus": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clientWaitSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "compileShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "compressedTexImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "compressedTexImage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "compressedTexSubImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "compressedTexSubImage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "copyBufferSubData": {
+      "calls": 0,
+      "ms": 0
+    },
+    "copyTexImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "copyTexSubImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "copyTexSubImage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createBuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createProgram": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createRenderbuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createSampler": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createTexture": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "createVertexArray": {
+      "calls": 0,
+      "ms": 0
+    },
+    "cullFace": {
+      "calls": 638,
+      "ms": 2.0749998539686203
+    },
+    "deleteBuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteProgram": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteRenderbuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteSampler": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteTexture": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "deleteVertexArray": {
+      "calls": 0,
+      "ms": 0
+    },
+    "depthFunc": {
+      "calls": 0,
+      "ms": 0
+    },
+    "depthMask": {
+      "calls": 0,
+      "ms": 0
+    },
+    "depthRange": {
+      "calls": 1800,
+      "ms": 5.040000274777412
+    },
+    "detachShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "disable": {
+      "calls": 9114,
+      "ms": 17.50999940931797
+    },
+    "drawArraysInstanced": {
+      "calls": 0,
+      "ms": 0
+    },
+    "drawElementsInstanced": {
+      "calls": 0,
+      "ms": 0
+    },
+    "drawRangeElements": {
+      "calls": 0,
+      "ms": 0
+    },
+    "enable": {
+      "calls": 4614,
+      "ms": 10.205000191926956
+    },
+    "endQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "endTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "fenceSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "finish": {
+      "calls": 0,
+      "ms": 0
+    },
+    "flush": {
+      "calls": 0,
+      "ms": 0
+    },
+    "framebufferRenderbuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "framebufferTexture2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "framebufferTextureLayer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "frontFace": {
+      "calls": 638,
+      "ms": 2.0799999982118607
+    },
+    "generateMipmap": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getActiveAttrib": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getActiveUniform": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getActiveUniformBlockName": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getActiveUniformBlockParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getActiveUniforms": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getAttachedShaders": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getAttribLocation": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getBufferParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getBufferSubData": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getContextAttributes": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getError": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getExtension": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getFragDataLocation": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getFramebufferAttachmentParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getIndexedParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getInternalformatParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getProgramInfoLog": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getProgramParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getQueryParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getRenderbufferParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getSamplerParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getShaderInfoLog": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getShaderParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getShaderPrecisionFormat": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getShaderSource": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getSupportedExtensions": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getSyncParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getTexParameter": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getTransformFeedbackVarying": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getUniform": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getUniformBlockIndex": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getUniformIndices": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getUniformLocation": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getVertexAttrib": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getVertexAttribOffset": {
+      "calls": 0,
+      "ms": 0
+    },
+    "hint": {
+      "calls": 0,
+      "ms": 0
+    },
+    "invalidateFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "invalidateSubFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isBuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isContextLost": {
+      "calls": 900,
+      "ms": 2.784999966621399
+    },
+    "isEnabled": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isFramebuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isProgram": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isQuery": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isRenderbuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isSampler": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isShader": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isTexture": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "isVertexArray": {
+      "calls": 0,
+      "ms": 0
+    },
+    "lineWidth": {
+      "calls": 0,
+      "ms": 0
+    },
+    "linkProgram": {
+      "calls": 0,
+      "ms": 0
+    },
+    "pauseTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "pixelStorei": {
+      "calls": 0,
+      "ms": 0
+    },
+    "polygonOffset": {
+      "calls": 0,
+      "ms": 0
+    },
+    "readBuffer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "readPixels": {
+      "calls": 0,
+      "ms": 0
+    },
+    "renderbufferStorage": {
+      "calls": 0,
+      "ms": 0
+    },
+    "renderbufferStorageMultisample": {
+      "calls": 0,
+      "ms": 0
+    },
+    "resumeTransformFeedback": {
+      "calls": 0,
+      "ms": 0
+    },
+    "sampleCoverage": {
+      "calls": 0,
+      "ms": 0
+    },
+    "samplerParameterf": {
+      "calls": 0,
+      "ms": 0
+    },
+    "samplerParameteri": {
+      "calls": 0,
+      "ms": 0
+    },
+    "shaderSource": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilFunc": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilFuncSeparate": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilMask": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilMaskSeparate": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilOp": {
+      "calls": 0,
+      "ms": 0
+    },
+    "stencilOpSeparate": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texImage2D": {
+      "calls": 900,
+      "ms": 100.38500006496906
+    },
+    "texImage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texParameterf": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texParameteri": {
+      "calls": 5400,
+      "ms": 11.960000365972519
+    },
+    "texStorage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texStorage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texSubImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texSubImage3D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "transformFeedbackVaryings": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform1ui": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform2ui": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3ui": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform4ui": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformBlockBinding": {
+      "calls": 0,
+      "ms": 0
+    },
+    "useProgram": {
+      "calls": 3338,
+      "ms": 9.679999560117722
+    },
+    "validateProgram": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribDivisor": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribI4i": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribI4ui": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribIPointer": {
+      "calls": 0,
+      "ms": 0
+    },
+    "waitSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bindBuffer": {
+      "calls": 11814,
+      "ms": 28.079999834299088
+    },
+    "bindFramebuffer": {
+      "calls": 1800,
+      "ms": 8.629999920725822
+    },
+    "bindTexture": {
+      "calls": 10556,
+      "ms": 27.115000024437904
+    },
+    "clear": {
+      "calls": 900,
+      "ms": 10.700000271201134
+    },
+    "clearBufferfi": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clearBufferfv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clearBufferiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clearBufferuiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clearColor": {
+      "calls": 900,
+      "ms": 2.874999910593033
+    },
+    "clearDepth": {
+      "calls": 900,
+      "ms": 1.8650000095367432
+    },
+    "clearStencil": {
+      "calls": 900,
+      "ms": 1.899999737739563
+    },
+    "colorMask": {
+      "calls": 4876,
+      "ms": 10.80000026524067
+    },
+    "disableVertexAttribArray": {
+      "calls": 5776,
+      "ms": 11.234999671578407
+    },
+    "drawArrays": {
+      "calls": 2700,
+      "ms": 16.585000351071358
+    },
+    "drawBuffers": {
+      "calls": 0,
+      "ms": 0
+    },
+    "drawElements": {
+      "calls": 665,
+      "ms": 2.1250002831220627
+    },
+    "enableVertexAttribArray": {
+      "calls": 5776,
+      "ms": 12.349999740719795
+    },
+    "scissor": {
+      "calls": 1800,
+      "ms": 4.869999900460243
+    },
+    "uniform1f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform1fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform1i": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform1iv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform1uiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform2f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform2fv": {
+      "calls": 2447,
+      "ms": 7.204999774694443
+    },
+    "uniform2i": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform2iv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform2uiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3i": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3iv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform3uiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform4f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform4fv": {
+      "calls": 2552,
+      "ms": 6.180000215768814
+    },
+    "uniform4i": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform4iv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniform4uiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix2fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix2x3fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix2x4fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix3fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix3x2fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix3x4fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix4fv": {
+      "calls": 3723,
+      "ms": 12.239999547600746
+    },
+    "uniformMatrix4x2fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "uniformMatrix4x3fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib1f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib1fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib2f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib2fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib3f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib3fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib4f": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttrib4fv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribI4iv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribI4uiv": {
+      "calls": 0,
+      "ms": 0
+    },
+    "vertexAttribPointer": {
+      "calls": 9195,
+      "ms": 19.38999977707863
+    },
+    "viewport": {
+      "calls": 1800,
+      "ms": 5.009999945759773
+    },
+    "drawingBufferStorage": {
+      "calls": 0,
+      "ms": 0
+    },
+    "makeXRCompatible": {
+      "calls": 0,
+      "ms": 0
+    }
+  },
+  "underruns": 0,
+  "renderer": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)"
+}

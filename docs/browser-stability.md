@@ -38,7 +38,7 @@ For a decoder smoke test, generate a three-frame blue 480x272 H.264 video with a
 - The codec smoke test decoded three synthetic 480x272 H.264 frames and confirmed ATRAC3, ATRAC3+, AAC, MP3 and MPEG-PS registration.
 - Headless Chrome with SwiftShader booted and rendered the bundled `pspautotests/demos/cube.pbp` for over one minute; AudioContext reached running state and configuration was persisted. A simulated context-loss event displayed recovery. This demo does not validate audible game audio.
 - Browser integration with localStorage denied imported a native save folder, reset a bad settings file with a backup, retained the save marker and exported a report without save contents.
-- No commercial game compatibility or numerical gameplay speedup has been verified in this workspace. Galaxy A56, Brave and Edge remain device/browser test targets.
+- Full commercial-game compatibility and combat performance remain unverified. Limited Ghost of Sparta startup, menu and movie measurements are documented in [the performance report](god-of-war-performance.md). Galaxy A56, Brave and Edge remain device/browser test targets.
 
 ## Toolchain upgrade validation (2026-10-18)
 
@@ -64,7 +64,8 @@ The shell no longer rebuilds the controller selector when its device list is
 unchanged, skips discovery polling in hidden tabs and releases the temporary GPU
 probe context. Logs remain in the bounded diagnostic buffer; console mirroring
 is limited to errors unless `ppsspp_verbose_console=1` is set in localStorage.
-The core already builds with SIMD, pthreads, O3 and release LTO via the web Makefile.
+The core builds with SIMD, pthreads and O3 via the web Makefile. LTO is disabled
+by default following the game-launch freeze report below.
 No core rebuild is required for these shell changes.
 
 Validation: 23 runtime tests and the production Angular build passed. No gameplay
@@ -73,3 +74,29 @@ power mode after warmup, using PPSSPP's FPS/speed display and audio underruns.
 The shell's “Hz · browser” measures browser callbacks, not emulated frames.
 For CPU/GPU attribution, capture a browser Performance trace of that same scene;
 1× rendering primarily reduces GPU work and cannot remove a CPU emulation bottleneck.
+
+## God of War profiling
+
+See [the measured Ghost of Sparta report](god-of-war-performance.md) for CPU profiles,
+real AMD GPU results, the rejected lag-sync experiment and a repeatable capture script.
+The original timing remains enabled: disabling it doubled the opening movie speed.
+
+## LTO game-launch freeze
+
+With LTO enabled, the emulator UI was reported to start successfully while
+launching games froze the entire browser page. The root cause has not been
+isolated. `WASM_ENABLE_LTO=OFF` is the current default in the web Makefile and
+core release configuration; the Pages workflow inherits the web default.
+
+Keep LTO disabled for normal builds:
+
+```sh
+make wasm-release WASM_ENABLE_LTO=OFF
+```
+
+This reconfigures and rebuilds the core; changing the Makefile alone does not
+replace existing JS/WASM artifacts. Package the rebuilt matching artifacts
+before testing a deployed build. Earlier LTO build, homebrew and profiling
+results in this document describe limited historical checks and do not resolve
+the reported freeze. Reproduce the same game, browser and toolchain with and
+without LTO before attributing the failure to a specific compiler optimization.

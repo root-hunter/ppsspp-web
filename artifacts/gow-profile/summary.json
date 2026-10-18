@@ -1,0 +1,582 @@
+[
+  {
+    "capture": "cutscene",
+    "seconds": 15.057,
+    "lagSyncStackPercent": 64.28,
+    "clockSelfPercent": 64.28,
+    "idlePercent": 0.34,
+    "unattributedProgramPercent": 15.2,
+    "topSelf": [
+      {
+        "function": "now",
+        "percent": 53.98
+      },
+      {
+        "function": "(program)",
+        "percent": 15.2
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 10.3
+      },
+      {
+        "function": "decode_cabac_residual_nondc_internal",
+        "percent": 2.58
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 2.46
+      },
+      {
+        "function": "yuv2rgb_c_32",
+        "percent": 1.22
+      },
+      {
+        "function": "ff_h264_decode_mb_cabac",
+        "percent": 0.91
+      },
+      {
+        "function": "put_h264_qpel8_hv_lowpass_8",
+        "percent": 0.65
+      },
+      {
+        "function": "SasInstance::Mix(unsigned int, unsigned int, int, int, bool)",
+        "percent": 0.51
+      },
+      {
+        "function": "wasm-to-js",
+        "percent": 0.51
+      },
+      {
+        "function": "put_h264_qpel8_h_lowpass_8",
+        "percent": 0.49
+      },
+      {
+        "function": "ff_h264_idct_add_8_c",
+        "percent": 0.49
+      }
+    ]
+  },
+  {
+    "capture": "difficulty-0-page",
+    "seconds": 19.847,
+    "lagSyncStackPercent": 49.24,
+    "clockSelfPercent": 49.0,
+    "idlePercent": 0.22,
+    "unattributedProgramPercent": 32.34,
+    "topSelf": [
+      {
+        "function": "now",
+        "percent": 39.23
+      },
+      {
+        "function": "(program)",
+        "percent": 32.34
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 9.77
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 4.78
+      },
+      {
+        "function": "decode_cabac_residual_nondc_internal",
+        "percent": 0.95
+      },
+      {
+        "function": "yuv2rgb_c_32",
+        "percent": 0.81
+      },
+      {
+        "function": "wasm-to-js",
+        "percent": 0.54
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 0.53
+      },
+      {
+        "function": "SasInstance::Mix(unsigned int, unsigned int, int, int, bool)",
+        "percent": 0.52
+      },
+      {
+        "function": "growMemViews",
+        "percent": 0.41
+      },
+      {
+        "function": "ff_h264_decode_mb_cabac",
+        "percent": 0.4
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.3
+      }
+    ]
+  },
+  {
+    "capture": "hardware-hardware-no-lagsync-intro",
+    "seconds": 20.087,
+    "lagSyncStackPercent": 0.0,
+    "clockSelfPercent": 0.82,
+    "idlePercent": 40.18,
+    "unattributedProgramPercent": 5.13,
+    "topSelf": [
+      {
+        "function": "(idle)",
+        "percent": 40.18
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 23.32
+      },
+      {
+        "function": "(program)",
+        "percent": 5.13
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 4.41
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.06
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.03
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 1.59
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 1.49
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 1.34
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 1.03
+      },
+      {
+        "function": "getProgramParameter",
+        "percent": 0.93
+      },
+      {
+        "function": "growMemViews",
+        "percent": 0.77
+      }
+    ]
+  },
+  {
+    "capture": "hardware-original-cutscene",
+    "seconds": 20.058,
+    "lagSyncStackPercent": 79.17,
+    "clockSelfPercent": 78.91,
+    "idlePercent": 0.23,
+    "unattributedProgramPercent": 2.69,
+    "topSelf": [
+      {
+        "function": "now",
+        "percent": 66.05
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 12.86
+      },
+      {
+        "function": "(program)",
+        "percent": 2.69
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 2.65
+      },
+      {
+        "function": "decode_cabac_residual_nondc_internal",
+        "percent": 1.61
+      },
+      {
+        "function": "yuv2rgb_c_32",
+        "percent": 1.21
+      },
+      {
+        "function": "wasm-to-js",
+        "percent": 0.68
+      },
+      {
+        "function": "ff_h264_decode_mb_cabac",
+        "percent": 0.66
+      },
+      {
+        "function": "SasInstance::Mix(unsigned int, unsigned int, int, int, bool)",
+        "percent": 0.62
+      },
+      {
+        "function": "texImage2D",
+        "percent": 0.44
+      },
+      {
+        "function": "Atrac3Audio::Decode(unsigned char const*, int, int*, int, short*, int*)",
+        "percent": 0.42
+      },
+      {
+        "function": "put_h264_qpel8_h_lowpass_8",
+        "percent": 0.4
+      }
+    ]
+  },
+  {
+    "capture": "hardware-original-menu",
+    "seconds": 20.082,
+    "lagSyncStackPercent": 25.04,
+    "clockSelfPercent": 25.39,
+    "idlePercent": 1.57,
+    "unattributedProgramPercent": 4.7,
+    "topSelf": [
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 30.48
+      },
+      {
+        "function": "now",
+        "percent": 21.05
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 6.07
+      },
+      {
+        "function": "(program)",
+        "percent": 4.7
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 4.34
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.99
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.75
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 2.4
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.13
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 2.0
+      },
+      {
+        "function": "(idle)",
+        "percent": 1.57
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 1.43
+      }
+    ]
+  },
+  {
+    "capture": "intro",
+    "seconds": 15.154,
+    "lagSyncStackPercent": 17.44,
+    "clockSelfPercent": 17.42,
+    "idlePercent": 0.12,
+    "unattributedProgramPercent": 63.96,
+    "topSelf": [
+      {
+        "function": "(program)",
+        "percent": 63.96
+      },
+      {
+        "function": "now",
+        "percent": 14.18
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 8.08
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 3.24
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 1.52
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.78
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.63
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.54
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 0.48
+      },
+      {
+        "function": "growMemViews",
+        "percent": 0.47
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.46
+      },
+      {
+        "function": "wasm-to-js",
+        "percent": 0.34
+      }
+    ]
+  },
+  {
+    "capture": "lagsync-menu-steady",
+    "seconds": 20.065,
+    "lagSyncStackPercent": 16.33,
+    "clockSelfPercent": 16.25,
+    "idlePercent": 0.12,
+    "unattributedProgramPercent": 66.47,
+    "topSelf": [
+      {
+        "function": "(program)",
+        "percent": 66.47
+      },
+      {
+        "function": "now",
+        "percent": 13.71
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 6.97
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 2.54
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 1.48
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.73
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.64
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 0.58
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.54
+      },
+      {
+        "function": "2502126",
+        "percent": 0.5
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.45
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 0.35
+      }
+    ]
+  },
+  {
+    "capture": "lagsync-menu-warm",
+    "seconds": 20.115,
+    "lagSyncStackPercent": 15.01,
+    "clockSelfPercent": 14.92,
+    "idlePercent": 0.13,
+    "unattributedProgramPercent": 67.77,
+    "topSelf": [
+      {
+        "function": "(program)",
+        "percent": 67.77
+      },
+      {
+        "function": "now",
+        "percent": 12.57
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 7.29
+      },
+      {
+        "function": "_emscripten_get_now",
+        "percent": 2.35
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 1.31
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.68
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 0.61
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.59
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.52
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.51
+      },
+      {
+        "function": "2502126",
+        "percent": 0.44
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 0.31
+      }
+    ]
+  },
+  {
+    "capture": "no-lagsync-menu-warm",
+    "seconds": 20.087,
+    "lagSyncStackPercent": 0.0,
+    "clockSelfPercent": 0.17,
+    "idlePercent": 0.13,
+    "unattributedProgramPercent": 78.45,
+    "topSelf": [
+      {
+        "function": "(program)",
+        "percent": 78.45
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 9.19
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 1.83
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 1.01
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.91
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.74
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 0.59
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.58
+      },
+      {
+        "function": "2502126",
+        "percent": 0.42
+      },
+      {
+        "function": "VertexDecoder::Step_Color8888(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.32
+      },
+      {
+        "function": "get buffer",
+        "percent": 0.3
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 0.27
+      }
+    ]
+  },
+  {
+    "capture": "no-lagsync-menu",
+    "seconds": 15.154,
+    "lagSyncStackPercent": 0.0,
+    "clockSelfPercent": 0.12,
+    "idlePercent": 0.16,
+    "unattributedProgramPercent": 78.85,
+    "topSelf": [
+      {
+        "function": "(program)",
+        "percent": 78.85
+      },
+      {
+        "function": "MIPSComp::IRJit::RunLoopUntil(unsigned long long)",
+        "percent": 8.91
+      },
+      {
+        "function": "VertexDecoder::DecodeVerts(unsigned char*, unsigned char const*, UVScale const*, int) const",
+        "percent": 1.77
+      },
+      {
+        "function": "VertexDecoder::Step_WeightsFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.93
+      },
+      {
+        "function": "VertexDecoder::Step_NormalS8Skin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.92
+      },
+      {
+        "function": "bufferSubData",
+        "percent": 0.68
+      },
+      {
+        "function": "VertexDecoder::Step_TcU16Prescale(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.66
+      },
+      {
+        "function": "VertexDecoder::Step_PosFloatSkin(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.64
+      },
+      {
+        "function": "2502126",
+        "percent": 0.47
+      },
+      {
+        "function": "DrawEngineGLES::Flush()",
+        "percent": 0.38
+      },
+      {
+        "function": "VertexDecoder::Step_Color8888(VertexDecoder const*, unsigned char const*, unsigned char*)",
+        "percent": 0.3
+      },
+      {
+        "function": "DrawEngineCommon::DecodeInds()",
+        "percent": 0.29
+      }
+    ]
+  }
+]

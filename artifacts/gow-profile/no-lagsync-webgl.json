@@ -1,0 +1,55 @@
+{
+  "durationMs": 15083.579999998212,
+  "stats": {
+    "readPixels": {
+      "calls": 0,
+      "ms": 0
+    },
+    "finish": {
+      "calls": 0,
+      "ms": 0
+    },
+    "flush": {
+      "calls": 0,
+      "ms": 0
+    },
+    "getBufferSubData": {
+      "calls": 0,
+      "ms": 0
+    },
+    "clientWaitSync": {
+      "calls": 0,
+      "ms": 0
+    },
+    "drawElements": {
+      "calls": 27068,
+      "ms": 55.10000044107437
+    },
+    "drawArrays": {
+      "calls": 536,
+      "ms": 1.3249998688697815
+    },
+    "drawRangeElements": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "texSubImage2D": {
+      "calls": 0,
+      "ms": 0
+    },
+    "bufferSubData": {
+      "calls": 1072,
+      "ms": 93.18499957025051
+    },
+    "blitFramebuffer": {
+      "calls": 1608,
+      "ms": 3.285000205039978
+    }
+  },
+  "underruns": 0,
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+}

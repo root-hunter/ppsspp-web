@@ -1,0 +1,198 @@
+{
+  "date": "2026-10-18T14:39:35.136Z",
+  "title": "UCUS98737 : God of War®: Ghost of Sparta",
+  "durationSeconds": 20.082854,
+  "before": {
+    "ready": true,
+    "failed": false,
+    "renderer": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "hardwareConcurrency": 16,
+    "isolated": true,
+    "audio": {
+      "callbacks": 1615,
+      "nonsilent": 25,
+      "peak": 14127,
+      "rate": 48000,
+      "deviceStarted": false,
+      "pushes": 0,
+      "pushNonsilent": 0,
+      "pushPeak": 0,
+      "workletPeak": 0,
+      "workletTotal": 0,
+      "ringDropped": 0,
+      "underruns": 92,
+      "fallbackPeak": 0,
+      "fallbackDropped": 0
+    },
+    "timing": [
+      [
+        "General",
+        "ForceLagSync2",
+        "True"
+      ],
+      [
+        "Graphics",
+        "DisplayRefreshRate",
+        "60"
+      ],
+      [
+        "Graphics",
+        "FrameRate",
+        "0"
+      ],
+      [
+        "Graphics",
+        "FrameRate2",
+        "-1"
+      ],
+      [
+        "Graphics",
+        "FrameSkip",
+        "0"
+      ],
+      [
+        "Graphics",
+        "AutoFrameSkip",
+        "False"
+      ],
+      [
+        "Graphics",
+        "VerticalSync",
+        "True"
+      ],
+      [
+        "Graphics",
+        "LowLatencyPresent",
+        "False"
+      ],
+      [
+        "Sound",
+        "Enable",
+        "True"
+      ],
+      [
+        "Sound",
+        "ExtraAudioBuffering",
+        "False"
+      ],
+      [
+        "Sound",
+        "AudioBufferSize",
+        "1024"
+      ],
+      [
+        "Sound",
+        "FillAudioGaps",
+        "True"
+      ],
+      [
+        "Sound",
+        "AudioSyncMode",
+        "0"
+      ],
+      [
+        "Graphics",
+        "iShowStatusFlags",
+        "6"
+      ]
+    ]
+  },
+  "after": {
+    "ready": true,
+    "failed": false,
+    "renderer": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "hardwareConcurrency": 16,
+    "isolated": true,
+    "audio": {
+      "callbacks": 2561,
+      "nonsilent": 85,
+      "peak": 9242,
+      "rate": 48000,
+      "deviceStarted": false,
+      "pushes": 0,
+      "pushNonsilent": 0,
+      "pushPeak": 0,
+      "workletPeak": 0,
+      "workletTotal": 0,
+      "ringDropped": 0,
+      "underruns": 104,
+      "fallbackPeak": 0,
+      "fallbackDropped": 0
+    },
+    "timing": [
+      [
+        "General",
+        "ForceLagSync2",
+        "True"
+      ],
+      [
+        "Graphics",
+        "DisplayRefreshRate",
+        "60"
+      ],
+      [
+        "Graphics",
+        "FrameRate",
+        "0"
+      ],
+      [
+        "Graphics",
+        "FrameRate2",
+        "-1"
+      ],
+      [
+        "Graphics",
+        "FrameSkip",
+        "0"
+      ],
+      [
+        "Graphics",
+        "AutoFrameSkip",
+        "False"
+      ],
+      [
+        "Graphics",
+        "VerticalSync",
+        "True"
+      ],
+      [
+        "Graphics",
+        "LowLatencyPresent",
+        "False"
+      ],
+      [
+        "Sound",
+        "Enable",
+        "True"
+      ],
+      [
+        "Sound",
+        "ExtraAudioBuffering",
+        "False"
+      ],
+      [
+        "Sound",
+        "AudioBufferSize",
+        "1024"
+      ],
+      [
+        "Sound",
+        "FillAudioGaps",
+        "True"
+      ],
+      [
+        "Sound",
+        "AudioSyncMode",
+        "0"
+      ],
+      [
+        "Graphics",
+        "iShowStatusFlags",
+        "6"
+      ]
+    ]
+  },
+  "underrunDelta": 12
+}
