@@ -209,6 +209,7 @@
         control = sock; controlRx = new Uint8Array(); stats.lastError = ''; stats.state = 'connecting';
         open(sock, '', {}, controlMessage);
       } else openData(sock);
+      publish();
       // The caller must wait for poll/select to report completion.
       throw new FS.ErrnoError(26); // EINPROGRESS
     };

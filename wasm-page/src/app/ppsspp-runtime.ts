@@ -59,7 +59,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-20-network-invites-v2';
+const RUNTIME_ASSET_VERSION = '2026-10-20-network-status-v3';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

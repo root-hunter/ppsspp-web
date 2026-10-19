@@ -377,12 +377,13 @@ const networkEnableToggle = byId("networkEnableToggle");
 const networkServerInput  = byId("networkServerInput");
 const networkNickInput    = byId("networkNickInput");
 const networkMacInput     = byId("networkMacInput");
-const networkUseThisHostBtn = byId("networkUseThisHostBtn");
+let networkDraftDirty = false;
+let networkLiveStatus = null;
+let networkActiveConfig = null;
+let networkProbe = { state: "unverified" };
 const networkTestBtn      = byId("networkTestBtn");
 const networkSaveBtn      = byId("networkSaveBtn");
 const networkActivityEl   = byId("networkActivity");
-const netServerEl         = byId("iNetServer");
-const netPortEl           = byId("iNetPort");
 
 // Panel toggle (hidden by default; restore from localStorage)
 const PANEL_KEY = "ppsspp_panel_open";
@@ -392,6 +393,7 @@ function setPanelOpen(open, focus = true) {
   const stage = document.querySelector(".stage");
   if (stage) stage.inert = open;
   preferences.setItem(PANEL_KEY, open ? "1" : "0");
+  if (open) checkNetworkWhenVisible();
   for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
   if (focus) {
     const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsMenuToggle") : panelToggleBtn;
@@ -421,24 +423,37 @@ window.PPSSPPNetworkInvites = {
     const url = new URL(value.trim());
     if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || value.length > 8192) throw new Error("Invalid invitation URL");
     importNetworkInvite(url.hash, true);
+    networkProbe = { state: "unverified" };
     updateNetworkConfigUI();
   },
 };
-networkUseThisHostBtn?.addEventListener("click", () => {
-  if (networkServerInput) networkServerInput.value = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
-  saveNetworkConfigFromUI();
-});
 networkSaveBtn?.addEventListener("click", () => { try { saveNetworkConfigFromUI(); } catch (e) { networkActivityEl.textContent = e.message; } });
-byId("networkDisconnectBtn")?.addEventListener("click", () => window.ppssppAdhocTransport?.disconnect());
+byId("networkDisconnectBtn")?.addEventListener("click", () => {
+  window.ppssppAdhocTransport?.disconnect();
+  networkProbe = { state: "unverified" };
+  renderNetworkStatus();
+});
 byId("networkReconnectBtn")?.addEventListener("click", () => {
   const reconnect = window.Module?._ppssppAdhocReconnect;
   const result = reconnect ? reconnect() : -1;
+  if (result === 0) { networkLiveStatus = { state: "connecting", peers: [] }; renderNetworkStatus(); }
   if (networkActivityEl) networkActivityEl.textContent = result === 0
     ? "Core reconnect requested. Rejoin a session using the game's multiplayer menu."
     : "Enter the game's multiplayer menu first. Reconnect requires the updated WASM core.";
 });
-networkEnableToggle?.addEventListener("change", () => { try { saveNetworkConfigFromUI(); } catch (e) { networkActivityEl.textContent = e.message; } });
+networkEnableToggle?.addEventListener("change", () => { try { saveNetworkConfigFromUI(); checkNetworkWhenVisible(); } catch (e) { networkActivityEl.textContent = e.message; } });
 networkTestBtn?.addEventListener("click", testNetworkRelay);
+for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyInput", "networkNickInput", "networkMacInput"]) {
+  byId(id)?.addEventListener("input", () => {
+    networkDraftDirty = true;
+    networkProbe = { state: "unverified" };
+    renderNetworkStatus();
+    if (networkActivityEl) networkActivityEl.textContent = "Unsaved changes. Save settings to apply them; restart PPSSPP if already running.";
+  });
+}
+window.addEventListener("offline", renderNetworkStatus);
+window.addEventListener("online", () => { networkProbe = { state: "unverified" }; renderNetworkStatus(); checkNetworkWhenVisible(); });
+setInterval(checkNetworkWhenVisible, 30000);
 
 /* ── State ──────────────────────────────────────────────────────── */
 let selectedGame = null;
@@ -2105,7 +2120,7 @@ function testWebSocket(url, timeoutMs = 5000) {
         ws.close();
         resolve();
       };
-      ws.onerror = () => {
+      ws.onclose = ws.onerror = () => {
         if (done) return;
         done = true;
         clearTimeout(timer);
@@ -2118,15 +2133,74 @@ function testWebSocket(url, timeoutMs = 5000) {
   });
 }
 
-async function testNetworkRelay() {
+function networkConfigSignature(cfg) {
+  return JSON.stringify([cfg.enabled, cfg.server, cfg.room, cfg.sessionKey, cfg.nick, cfg.mac]);
+}
+
+function networkStatusView(cfg, live, probe, now = Date.now(), online = true) {
+  if (!online) return { tone: "error", title: "You are offline", detail: "Restore your internet or LAN connection, then check the relay again." };
+  if (live?.lastError) return { tone: "error", title: "Connection problem", detail: live.lastError + ". Check your relay address, session key and certificate; then reconnect from the game's multiplayer menu." };
+  if (live?.state === "registered") {
+    const count = live.peers?.length || 0;
+    return { tone: "good", title: count ? "Connected with friends" : "Connected to relay", detail: count ? `${count} player${count === 1 ? "" : "s"} connected. Use the game's multiplayer menu to play.` : "Game connection active. Host or join a session in the game's multiplayer menu." };
+  }
+  if (live?.state === "connecting") return { tone: "busy", title: "Connecting game…", detail: "Waiting for the relay to accept the game connection." };
+  if (probe.state === "checking") return { tone: "busy", title: "Checking relay…", detail: "Verifying the WebSocket connection and your access key." };
+  if (probe.state === "error") return { tone: "error", title: "Relay unreachable", detail: probe.error };
+  if (probe.state === "reachable" && now - probe.checkedAt < 30000) return { tone: "ready", title: "Relay reachable · game not connected", detail: "Relay accepted the connection. Start PPSSPP and enter the game's multiplayer menu to connect." };
+  if (live?.state === "disconnected") return { tone: "neutral", title: "Disconnected", detail: "The game has no active relay connection. Leave and re-enter the game's multiplayer menu to reconnect." };
+  if (!cfg.enabled) return { tone: "neutral", title: "Multiplayer disabled", detail: "Enable multiplayer and save your settings before starting PPSSPP." };
+  return { tone: "neutral", title: "Connection not checked", detail: "Check the relay before playing. The game connects when you enter its multiplayer menu." };
+}
+
+function renderNetworkStatus(cfg = loadNetworkConfig()) {
+  // Event listeners pass an Event; only configuration objects belong here.
+  if (!cfg || typeof cfg.enabled !== "boolean") cfg = loadNetworkConfig();
+  const view = networkStatusView(cfg, networkLiveStatus, networkProbe, Date.now(), navigator.onLine !== false);
+  const card = byId("networkStatus");
+  if (card) card.dataset.tone = view.tone;
+  if (byId("networkStatusTitle")) byId("networkStatusTitle").textContent = view.title;
+  if (byId("networkStatusDetail")) byId("networkStatusDetail").textContent = view.detail;
+  const live = networkLiveStatus;
+  const session = byId("networkSessionState");
+  if (session) session.textContent = live?.state === "registered"
+    ? `Room: ${networkActiveConfig?.room || cfg.room} · ${live.peers?.length || 0} peers` + (live.rttMs == null ? "" : ` · ${live.rttMs} ms`)
+    : "No active game session";
+  if (networkActiveConfig && networkConfigSignature(cfg) !== networkConfigSignature(networkActiveConfig)) {
+    if (session) session.textContent += " · Saved settings changed: restart PPSSPP to apply";
+  }
+  if (networkTestBtn) { networkTestBtn.disabled = networkProbe.state === "checking"; networkTestBtn.setAttribute("aria-busy", String(networkProbe.state === "checking")); }
+  if (byId("networkDisconnectBtn")) byId("networkDisconnectBtn").disabled = !["registered", "connecting"].includes(live?.state);
+  if (byId("networkReconnectBtn")) byId("networkReconnectBtn").disabled = !window.ppssppAdhocTransport || live?.state === "connecting";
+}
+
+function checkNetworkWhenVisible() {
+  if (document.hidden || !document.body.classList.contains("panel-open") || !byId("tabNetwork")?.classList.contains("active")) return;
+  renderNetworkStatus();
+  if (networkDraftDirty || !loadNetworkConfig().enabled || networkLiveStatus?.state === "registered" || networkLiveStatus?.state === "connecting") return;
+  if (networkProbe.state === "checking" || Date.now() - (networkProbe.checkedAt || 0) < 30000) return;
+  testNetworkRelay(false);
+}
+
+async function testNetworkRelay(save = true) {
+  let probe;
   try {
-    const cfg = saveNetworkConfigFromUI();
+    if (networkProbe.state === "checking") return;
+    const cfg = save === false ? loadNetworkConfig() : saveNetworkConfigFromUI();
+    probe = { state: "checking" };
+    networkProbe = probe;
+    renderNetworkStatus(cfg);
     const base = window.PPSSPPAdhoc.endpoint(cfg.server);
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
     base.search = new URLSearchParams({ v: "1", token, room: cfg.room, ...(cfg.sessionKey ? { session_key: cfg.sessionKey } : {}) });
     await testWebSocket(base.href);
-    updateNetworkConfigUI(cfg, "Relay WebSocket reachable. Game discovery and traffic appear below when the core enters multiplayer.");
-  } catch (e) { if (networkActivityEl) networkActivityEl.textContent = "Relay test failed: " + e.message; }
+    if (networkProbe !== probe) return;
+    networkProbe = { state: "reachable", checkedAt: Date.now() };
+  } catch (e) {
+    if (probe && networkProbe !== probe) return;
+    networkProbe = { state: "error", error: "Relay check failed: " + e.message, checkedAt: Date.now() };
+  }
+  renderNetworkStatus();
 }
 
 function saveNetworkConfigFromUI() {
@@ -2137,6 +2211,7 @@ function saveNetworkConfigFromUI() {
     nick: sanitizeNetworkNick(networkNickInput?.value), mac: sanitizeNetworkMac(networkMacInput?.value) };
   if (!/^[A-Za-z0-9_-]{1,32}$/.test(cfg.room)) throw new Error("Room: use 1–32 letters, numbers, _ or -");
   if (cfg.sessionKey.length > 256) throw new Error("Session key too long");
+  if (networkConfigSignature(cfg) !== networkConfigSignature(loadNetworkConfig())) networkProbe = { state: "unverified" };
   storeNetworkSessionKey(cfg.sessionKey);
   preferences.setItem(NETWORK_ENABLE_KEY, cfg.enabled ? "1" : "0");
   preferences.setItem(NETWORK_SERVER_KEY, cfg.server);
@@ -2149,20 +2224,21 @@ function saveNetworkConfigFromUI() {
 }
 
 function updateNetworkConfigUI(cfg = loadNetworkConfig(), message = "") {
+  networkDraftDirty = false;
   if (networkEnableToggle) networkEnableToggle.checked = cfg.enabled;
   if (networkServerInput) networkServerInput.value = cfg.server;
   if (networkNickInput) networkNickInput.value = cfg.nick;
   if (networkMacInput) networkMacInput.value = cfg.mac;
   if (byId("networkRoomInput")) byId("networkRoomInput").value = cfg.room;
   if (byId("networkSessionKeyInput")) byId("networkSessionKeyInput").value = cfg.sessionKey || "";
-  if (netServerEl) netServerEl.textContent = cfg.server;
-  if (netPortEl) netPortEl.textContent = "PDP / PTP via relay v1";
+  renderNetworkStatus(cfg);
   if (networkActivityEl && message) networkActivityEl.textContent = message;
 }
 
 function installSockFSAdhocRelay() {
   if (!loadNetworkConfig().enabled) return true;
   try {
+    networkActiveConfig = loadNetworkConfig();
     window.ppssppAdhocTransport = window.PPSSPPAdhoc.install({
       SOCKFS: window.SOCKFS || window.Module?.SOCKFS,
       FS: window.FS || window.Module?.FS,
@@ -2170,11 +2246,14 @@ function installSockFSAdhocRelay() {
       onstatus(status) {
         const node = byId("networkDiagnostics");
         if (node) node.textContent = JSON.stringify(status, null, 2);
-        if (networkActivityEl) networkActivityEl.textContent = status.lastError || `Core network: ${status.state}. Reconnect: leave and re-enter the game's multiplayer menu.`;
+        networkLiveStatus = status;
+        renderNetworkStatus();
       },
     });
     return true;
   } catch (error) {
+    networkLiveStatus = { state: "disconnected", lastError: error.message };
+    renderNetworkStatus();
     log("Network: " + error.message, "err");
     return false;
   }
@@ -4327,7 +4406,7 @@ function activatePanelTab(tabName) {
   if (name === "log") { flushLog(); renderLog(); }
   if (name === "library") refreshLibrary();
   if (name === "drive") initDriveConfigUI();
-  if (name === "network") updateNetworkConfigUI();
+  if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
 }
 
 panelTabSelect?.addEventListener("change", e => activatePanelTab(e.currentTarget.value));

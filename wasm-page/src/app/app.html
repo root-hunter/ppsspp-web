@@ -182,33 +182,46 @@
 
       <div class="tab-panel" id="tabNetwork">
         <div id="networkPanel">
-          <div class="info-group">
-            <h3>Ad Hoc</h3>
-            <div class="info-row"><span class="info-key">Mode</span> <span class="info-val" id="iNetMode">PSP Ad Hoc relay v1</span></div>
-            <div class="info-row"><span class="info-key">Server</span> <span class="info-val" id="iNetServer">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Port</span> <span class="info-val" id="iNetPort">27312</span></div>
-          </div>
+          <section class="network-status" id="networkStatus" data-tone="neutral" role="status" aria-live="polite" aria-atomic="true">
+            <div class="network-status-heading"><span class="network-led" aria-hidden="true"></span><strong id="networkStatusTitle">Not connected</strong></div>
+            <p id="networkStatusDetail">Enable multiplayer, then check your relay connection.</p>
+            <div class="network-session" id="networkSessionState">No active game session</div>
+          </section>
           <div class="network-config">
             <label class="network-toggle">
               <input type="checkbox" id="networkEnableToggle">
-              <span>Enable networking before launch</span>
+              <span>Enable multiplayer</span>
             </label>
-            <input id="networkServerInput" type="text" spellcheck="false" autocomplete="off" placeholder="wss://example.org/adhoc">
-            <input id="networkRoomInput" type="text" maxlength="32" placeholder="Room (public)" aria-label="Multiplayer room">
-            <input id="networkSessionKeyInput" type="password" maxlength="256" autocomplete="off" placeholder="Session key (leave empty for open relay)" aria-label="Relay session key">
-            <div class="network-two">
-              <input id="networkNickInput" type="text" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Nickname">
-              <input id="networkMacInput" type="text" spellcheck="false" autocomplete="off" placeholder="MAC address">
-            </div>
+            <label class="network-field">Relay address
+              <input id="networkServerInput" type="url" spellcheck="false" autocomplete="off" placeholder="wss://relay.example.org/adhoc">
+            </label>
+            <label class="network-field">Room
+              <input id="networkRoomInput" type="text" maxlength="32" placeholder="public">
+              <small>Use the same room and game version as your friends.</small>
+            </label>
+            <label class="network-field">Your session key <span class="network-optional">optional</span>
+              <input id="networkSessionKeyInput" type="password" maxlength="256" autocomplete="off" placeholder="Required only on a protected relay">
+            </label>
             <div class="network-actions">
-              <button id="networkUseThisHostBtn"><i data-lucide="server"></i> This Host</button>
-              <button id="networkTestBtn"><i data-lucide="activity"></i> Test</button>
-              <button id="networkDisconnectBtn">Disconnect</button>
-              <button id="networkReconnectBtn">Reconnect</button>
-              <button id="networkSaveBtn"><i data-lucide="save"></i> Save</button>
+              <button id="networkSaveBtn"><i data-lucide="save"></i> Save settings</button>
+              <button id="networkTestBtn"><i data-lucide="activity"></i> Check connection</button>
             </div>
+            <div id="networkActivity" class="network-activity" role="status">Save before starting PPSSPP, then host or join from the game's multiplayer menu.</div>
+            <details class="network-advanced">
+              <summary>Player identity &amp; connection controls</summary>
+              <label class="network-field">Nickname
+                <input id="networkNickInput" type="text" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Nickname">
+              </label>
+              <label class="network-field">MAC address
+                <input id="networkMacInput" type="text" spellcheck="false" autocomplete="off" placeholder="Automatically assigned">
+                <small>Each player needs a different address. Usually no change is needed.</small>
+              </label>
+              <div class="network-actions">
+                <button id="networkDisconnectBtn" disabled>Disconnect</button>
+                <button id="networkReconnectBtn" disabled>Reconnect game</button>
+              </div>
+            </details>
           </div>
-          <div id="networkActivity" class="network-activity">Enable before launch. Both players need the same game version and room. Create and join sessions in the game's multiplayer menu. Reconnect by leaving and re-entering multiplayer.</div>
           <details id="networkInvitePanel">
             <summary>Play with friends · QR &amp; invitation</summary>
             <p>Share the relay, room and optional session key. Your friends keep their own nickname and MAC. Use the same game version, then host or join inside the game.</p>
@@ -226,7 +239,7 @@
             <video id="networkInviteVideo" hidden muted playsinline aria-label="QR scanner preview"></video>
             <p id="networkInviteStatus" role="status"></p>
           </details>
-          <details><summary>Live network diagnostics</summary><pre id="networkDiagnostics" aria-live="polite">Core networking idle</pre></details>
+          <details class="network-diagnostics"><summary>Technical diagnostics</summary><pre id="networkDiagnostics" aria-live="polite">No game connection has been started.</pre></details>
         </div>
       </div>
 

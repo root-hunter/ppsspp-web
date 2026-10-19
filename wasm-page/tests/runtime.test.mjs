@@ -481,3 +481,21 @@ test('steady controller scans leave selector DOM alone while disconnects still u
   assert.equal(updates, 1);
   assert.equal(ctx.connectedGamepads.size, 0);
 });
+
+test('network status distinguishes a relay check from an active game and surfaces failures', () => {
+  const ctx = load(['networkStatusView']);
+  const cfg = { enabled: true };
+  assert.equal(ctx.networkStatusView(cfg, { state: 'idle' }, { state: 'unverified' }).title, 'Connection not checked');
+  assert.equal(ctx.networkStatusView(cfg, null, { state: 'checking' }).tone, 'busy');
+  const checked = ctx.networkStatusView(cfg, null, { state: 'reachable', checkedAt: 100 }, 200);
+  assert.equal(checked.title, 'Relay reachable · game not connected');
+  assert.notEqual(checked.tone, 'good');
+  assert.equal(ctx.networkStatusView(cfg, null, { state: 'reachable', checkedAt: 100 }, 30100).title, 'Connection not checked');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'idle' }, { state: 'error', error: 'Access rejected' }).detail, 'Access rejected');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'registered', peers: [] }, { state: 'unverified' }).title, 'Connected to relay');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'registered', peers: [{}] }, { state: 'unverified' }).title, 'Connected with friends');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'registered', lastError: 'Data socket failed' }, { state: 'reachable' }).tone, 'error');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'disconnected' }, { state: 'unverified' }).title, 'Disconnected');
+  assert.equal(ctx.networkStatusView({ enabled: false }, null, { state: 'unverified' }).title, 'Multiplayer disabled');
+  assert.equal(ctx.networkStatusView(cfg, { state: 'registered' }, {}, 200, false).title, 'You are offline');
+});

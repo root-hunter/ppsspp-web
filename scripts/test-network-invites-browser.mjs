@@ -3,12 +3,12 @@
 // No test framework dependency; uses Chrome DevTools Protocol and Node WebSocket.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const origin = 'http://127.0.0.1:18089';
 const root = resolve(new URL('..', import.meta.url).pathname);
-const server = spawn('python3', ['server/serve.py', '--bind', '127.0.0.1', '--port', '18089'], {
+const server = spawn('python3', ['server/serve.py', '--bind', '127.0.0.1', '--port', '18089', '--adhoc-ws', '--adhoc-ws-port', '0'], {
   cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RELAY_AUTH_MODE: 'open' },
 });
 const profile = await mkdtemp(join(tmpdir(), 'ppsspp-adhoc-'));
@@ -64,6 +64,46 @@ try {
   await command('Page.enable', {}, sessionId);
   await command('Page.navigate', { url: origin }, sessionId);
   await waitFor(() => evaluate(sessionId, '!!window.PPSSPPNetworkInvites'), 'network UI');
+  assert.equal(await evaluate(sessionId, "document.getElementById('networkUseThisHostBtn') === null"), true);
+  assert.equal(await evaluate(sessionId, "document.getElementById('networkStatusTitle').textContent"), 'Multiplayer disabled');
+  await evaluate(sessionId, `{
+    document.getElementById('networkEnableToggle').checked=true;
+    document.getElementById('networkServerInput').value='ws://127.0.0.1:18089/missing';
+    document.getElementById('networkTestBtn').click();
+  }`);
+  await waitFor(() => evaluate(sessionId, "document.getElementById('networkStatus').dataset.tone === 'error'"), 'failed connection indicator');
+  await evaluate(sessionId, `{
+    document.getElementById('networkServerInput').value='ws://127.0.0.1:18089/adhoc';
+    document.getElementById('networkTestBtn').click();
+  }`);
+  await waitFor(() => evaluate(sessionId, "document.getElementById('networkStatus').dataset.tone === 'ready'"), 'reachable relay indicator');
+  assert.equal(await evaluate(sessionId, "document.getElementById('networkStatusTitle').textContent"), 'Relay reachable · game not connected');
+  await command('Emulation.setDeviceMetricsOverride', {width:390, height:844, deviceScaleFactor:1, mobile:true}, sessionId);
+  await evaluate(sessionId, "setPanelOpen(true, false); activatePanelTab('network')");
+  assert.equal(await evaluate(sessionId, "document.getElementById('networkPanel').scrollWidth <= document.getElementById('networkPanel').clientWidth"), true);
+  if (process.env.PPSSPP_PANEL_SCREENSHOT) {
+    const shot = await command('Page.captureScreenshot', {format:'png'}, sessionId);
+    await writeFile(process.env.PPSSPP_PANEL_SCREENSHOT, Buffer.from(shot.data, 'base64'));
+  }
+  // Drive the real transport against the real relay, without loading a game.
+  await evaluate(sessionId, `{
+    window.SOCKFS = { websocket_sock_ops: Object.fromEntries(['bind','connect','listen','accept','getname','poll','sendmsg','recvmsg','close'].map(k => [k, () => {}])), emit() {} };
+    window.FS = { ErrnoError: class extends Error { constructor(errno) { super(String(errno)); this.errno = errno; } } };
+    if (!installSockFSAdhocRelay()) throw Error('Transport installation failed');
+    window.statusSocket = {type:1, stream:{fd:999}, recv_queue:[], __ppssppAdhoc:true, __ppssppControl:true};
+    try { SOCKFS.websocket_sock_ops.connect(window.statusSocket, 'relay', 27312); } catch (e) { if(e.errno!==26) throw e; }
+  }`);
+  await waitFor(() => evaluate(sessionId, 'window.statusSocket.__relay.ws.readyState === WebSocket.OPEN'), 'live control socket');
+  await evaluate(sessionId, `{
+    const packet=new Uint8Array(144); packet[0]=1;
+    packet.set(loadNetworkConfig().mac.split(':').map(v => parseInt(v,16)),1);
+    packet.set(new TextEncoder().encode('StatusTest'),7); packet.set(new TextEncoder().encode('ULUS10466'),135);
+    window.statusSocket.__relay.ws.send(packet);
+  }`);
+  await waitFor(() => evaluate(sessionId, "document.getElementById('networkStatus').dataset.tone === 'good'"), 'registered game indicator');
+  await evaluate(sessionId, "document.getElementById('networkDisconnectBtn').click()");
+  await waitFor(() => evaluate(sessionId, "document.getElementById('networkStatusTitle').textContent === 'Disconnected'"), 'intentional disconnection indicator');
+  await evaluate(sessionId, 'window.ppssppAdhocTransport.destroy(); delete window.ppssppAdhocTransport;');
   await evaluate(sessionId, `{
     document.getElementById('networkServerInput').value='ws://friends.test/adhoc';
     document.getElementById('networkRoomInput').value='friday';
@@ -101,7 +141,7 @@ try {
   assert.equal(await evaluate(attached.sessionId, 'location.hash'), '');
   assert.equal(await evaluate(attached.sessionId, "document.getElementById('networkSessionKeyInput').value"), 'test-user-key');
   assert.equal(await evaluate(attached.sessionId, "document.getElementById('networkRoomInput').value"), 'friday');
-  console.log('PASS: QR creation, image import, network enablement, camera release and invitation URL import');
+  console.log('PASS: relay failure/reachability/live registration/disconnection indicators; QR creation, image import, network enablement, camera release and invitation URL import');
 } finally {
   if (socket?.readyState === WebSocket.OPEN) {
     for (const id of contexts) await command('Target.disposeBrowserContext', { browserContextId: id }).catch(() => {});
