@@ -52,27 +52,6 @@ const WEB_STABILITY_CONFIG = [
   ["General", "IgnoreBadMemAccess", "True"],
   ["CPU", "FastMemoryAccess", "True"],
 ];
-// Keep framebuffer effects and readbacks intact: disabling them breaks games.
-const WEB_PERFORMANCE_CONFIG = [
-  ["Graphics", "InternalResolution", "1"],
-  ["Graphics", "SoftwareRenderer", "False"],
-  ["Graphics", "HardwareTransform", "True"],
-  ["Graphics", "SoftwareSkinning", "True"],
-  ["Graphics", "TexScalingLevel", "1"],
-  ["Graphics", "TexDeposterize", "False"],
-  ["Graphics", "TexHardwareScaling", "False"],
-  ["Graphics", "AnisotropyLevel", "0"],
-  ["Graphics", "MultiSampleLevel", "0"],
-];
-
-function applyPerformanceConfig(text) {
-  if (preferences.getItem("ppsspp_performance_profile") === "custom") return text;
-  for (const [section, key, value] of WEB_PERFORMANCE_CONFIG) {
-    text = patchIniValue(text, section, key, value);
-  }
-  return text;
-}
-
 const MOBILE_TOUCH_CONFIG = [
   ["General", "UIScaleFactor", "3"],
   ["Control", "ShowTouchControls", "True"],
@@ -1976,7 +1955,7 @@ async function loadPersistedFiles(FS) {
   }
 }
 
-function patchIniValue(text, section, key, value) {
+function patchIniValue(text, section, key, value, overwrite = true) {
   const lines = text ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") : [];
   const sectionHeader = "[" + section + "]";
   const sectionRe = /^\s*\[([^\]]+)\]\s*$/;
@@ -2002,6 +1981,7 @@ function patchIniValue(text, section, key, value) {
   } else {
     for (let i = sectionStart + 1; i < sectionEnd; i++) {
       if (keyRe.test(lines[i])) {
+        if (!overwrite) return text;
         lines[i] = key + " = " + value;
         return lines.join("\n").replace(/\n*$/, "\n");
       }
@@ -2219,13 +2199,9 @@ async function applyNetworkConfig(FS, text) {
 }
 
 function applyMultiplayerTimingConfig(text) {
-  if (!loadNetworkConfig().enabled || preferences.getItem("ppsspp_performance_profile") === "custom") return text;
-  // Browser callbacks pace the PSP clock and socket waits yield to the event
-  // loop. Native lag-sync sleeps block delivery; frame skipping hides stalls
-  // rather than fixing the networked simulation's progress.
-  text = patchIniValue(text, "General", "ForceLagSync2", "False");
-  text = patchIniValue(text, "Graphics", "FrameSkip", "0");
-  return patchIniValue(text, "Graphics", "AutoFrameSkip", "False");
+  if (!loadNetworkConfig().enabled) return text;
+  // Native lag-sync sleeps block delivery of browser relay messages.
+  return patchIniValue(text, "General", "ForceLagSync2", "False");
 }
 
 async function forceGamesDirectoryConfig(FS) {
@@ -2242,25 +2218,21 @@ async function forceGamesDirectoryConfig(FS) {
       let patched = patchIniValue(text, "General", "CurrentDirectory", VIRTUAL_GAME_DIR);
       patched = await applyNetworkConfig(FS, patched);
       for (const [section, key, value] of WEB_NATIVE_TIMING_CONFIG) {
-        patched = patchIniValue(patched, section, key, value);
+        patched = patchIniValue(patched, section, key, value, false);
       }
       for (const [section, key, value] of WEB_STABILITY_CONFIG) {
-        patched = patchIniValue(patched, section, key, value);
+        patched = patchIniValue(patched, section, key, value, false);
       }
-      patched = applyPerformanceConfig(patched);
       patched = applyMultiplayerTimingConfig(patched);
       if (applyMobileTouchDefaults) {
-        if (!/^\s*InternalResolution\s*=/m.test(patched)) {
-          patched = patchIniValue(patched, "Graphics", "InternalResolution", "1");
-        }
         for (const [section, key, value] of MOBILE_TOUCH_CONFIG) {
-          patched = patchIniValue(patched, section, key, value);
+          patched = patchIniValue(patched, section, key, value, false);
         }
       }
       const bytes = encoder.encode(patched);
       FS.writeFile(iniPath, bytes);
       await opfsPut(iniPath, bytes);
-      log("Config: web native timing/audio defaults applied to " + iniPath + (applyMobileTouchDefaults ? " (mobile touch/UI enabled)" : ""), "ok");
+      log("Config: missing web defaults initialized at " + iniPath + (applyMobileTouchDefaults ? " (mobile touch/UI enabled)" : ""), "ok");
     } catch(e) {
       log("Config: failed to apply web defaults at " + iniPath + ": " + e.message, "warn");
     }
@@ -4249,15 +4221,10 @@ async function preloadStoredGames(FS) {
 
   let ok = 0;
   let bytesMounted = 0;
-  const budget = (isMobileExperience() ? 128 : 256) * 1024 * 1024;
   for (const name of favorites) {
     if (selectedGame && name === selectedGame.name.replace(/[^a-zA-Z0-9._-]/g, "_")) continue;
-    const size = games.find(game => game.path === name)?.size || 0;
-    if (bytesMounted + size > budget) {
-      log("Startup preload skipped to protect memory: " + name + ". Select it in Library when needed.", "warn");
-      continue;
-    }
     const target = VIRTUAL_GAME_DIR + "/" + name;
+    if (FS.analyzePath?.(target)?.exists) continue;
     try {
       setStatus("Preloading game " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
       showLoading("Preloading game: " + name);
@@ -4367,15 +4334,6 @@ panelTabSelect?.addEventListener("change", e => activatePanelTab(e.currentTarget
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => activatePanelTab(tab.dataset.tab));
 });
-
-const performanceProfileSelect = byId("performanceProfile");
-if (performanceProfileSelect) {
-  performanceProfileSelect.value = preferences.getItem("ppsspp_performance_profile") === "custom" ? "custom" : "performance";
-  performanceProfileSelect.addEventListener("change", () => {
-    preferences.setItem("ppsspp_performance_profile", performanceProfileSelect.value);
-    showToast("Performance profile saved. Reload to apply at startup.");
-  });
-}
 
 /* ── FPS counter ────────────────────────────────────────────────── */
 let fpsFrames = 0, fpsLast = performance.now();
@@ -4555,7 +4513,7 @@ async function start() {
           await loadPersistedFiles(FS);
           await forceGamesDirectoryConfig(FS);
           gameArg = await preloadGame(FS);
-          if (!gameArg) await preloadStoredGames(FS);
+          await preloadStoredGames(FS);
           Module.arguments.length = 0;
           Module.arguments.push(...emulatorLaunchArgs());
           if (gameArg) Module.arguments.push(gameArg);

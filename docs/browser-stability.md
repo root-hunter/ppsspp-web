@@ -10,13 +10,13 @@ These reports are observations from users, not verified compatibility results.
 | Stuck at Starting PPSSPP; ISO/CSO storage failures | Failed startup preparation no longer releases the dependency and starts a partially prepared core. A startup timeout, recovery UI and diagnostic export explain failures. Missing core files are checked together. | Real devices and large game files, with denied/full storage and interrupted downloads. |
 | Brave does not start | Preferences tolerate blocked localStorage. Cache denial/quota no longer prevents the service worker from applying isolation headers or serving a successful network response. | Brave Shields and different privacy policies can still block threads, graphics or storage. Test on Brave itself. |
 | Filter changes crash and require clearing site data | Reset settings in System, or after a reported crash; config backups are retained. Games, save data and controls.ini are preserved. GPU context loss displays recovery actions. | Shader compilation/rendering defects remain core issues. No claim that every shader now works. |
-| Mortal Kombat Unchained at 6 FPS on Galaxy A56 | Removed full-disc metadata reads, duplicate MEMFS game copies, automatic preload-all migration and offscreen log rendering. URL/Drive game downloads stream to OPFS with backpressure and abort the transaction on failure. Preloads have 128 MiB mobile / 256 MiB desktop budgets; launching a selected game skips library preloads. New mobile configs start at 1x PSP resolution. | Measure real emulated FPS, audio underruns and memory on the A56. The browser's rAF cadence is labelled Hz, not game FPS. |
+| Mortal Kombat Unchained at 6 FPS on Galaxy A56 | Removed full-disc metadata reads, duplicate MEMFS game copies, automatic preload-all migration and offscreen log rendering. URL/Drive game downloads stream to OPFS with backpressure and abort the transaction on failure. Startup mounts only games explicitly marked for preload, including when another game is launched directly. Selected preloads have no shell-imposed size cutoff; their contents use browser memory. | Measure real emulated FPS, audio underruns and memory on the A56. The browser's rAF cadence is labelled Hz, not game FPS. |
 | Import native PSP saves / mounted Drive saves | Saves accepts a native SAVEDATA folder or an individual game save folder, retaining slot names. Existing bundle import/export and Drive sync remain available. | Test with actual SFAlpha3 and Dissidia saves. This is folder import, not live OS-folder synchronisation. |
 | Assassin's Creed loading loop; Size Matters/FIFA/GTA black screens | Improved diagnostics and codec support address possible causes. | Still unverified. Do not label fixed without reproducing the same game/build/browser combination. |
 
 ## Checks
 
-- `npm --prefix wasm-page test`: allocation boundaries, malformed ISO metadata, preload budgets, serial persistence, failed deletion retry, settings recovery, blocked storage/cache, failed startup dependency handling and native save paths.
+- `npm --prefix wasm-page test`: allocation boundaries, malformed ISO metadata, explicit startup mounts, settings preservation, serial persistence, failed deletion retry, settings recovery, blocked storage/cache, failed startup dependency handling and native save paths.
 - `npm --prefix wasm-page run build`: production UI compilation.
 - `make wasm-release`: builds FFmpeg and the release emulator. The first codec build is slower; subsequent builds reuse its configuration and incremental objects.
 - `make app-build-pages`: refuses a CMake build configured with FFmpeg disabled and writes one content-derived cache revision for JS/WASM/data. Publish all artifacts together.
@@ -49,16 +49,21 @@ For a decoder smoke test, generate a three-frame blue 480x272 H.264 video with a
 - The static Pages artifact was packaged with the matched new JS/WASM/data revision. CI and the Docker UI stage now pin the documented toolchain versions. The CI deployment and Docker image build were not run locally.
 - This establishes build/startup compatibility, not a measured gameplay FPS improvement. Commercial-game/device compatibility remains subject to the tests above.
 
-## Browser performance profile (2026-10-18)
+## Startup settings and automount
 
-System → Startup profile defaults to Maximum performance on mobile and desktop.
-It applies PSP 1× resolution, hardware rendering/transform, software skinning,
-1× texture scaling, no deposterization/hardware texture scaling, no MSAA and no
-anisotropic filtering on startup. These keys were checked against Core/Config.cpp.
-Per-game INI overrides still take precedence. Custom stops applying the profile;
-it retains current values, so change graphics in PPSSPP to restore higher quality.
-Framebuffer effects, readbacks, depth/stencil, CPU clock and frame skipping are
-unchanged to preserve compatibility. Existing timing/audio policies still apply.
+The Startup profile selector has been removed. Startup preserves saved graphics,
+timing, audio and touch preferences; web defaults only fill missing INI keys.
+No resolution, texture scaling, MSAA or anisotropic filtering profile is applied.
+Multiplayer still disables native lag-sync sleeps to allow browser relay delivery,
+while preserving the user's frame skipping settings.
+Previously overwritten values cannot be recovered automatically: change them in
+PPSSPP and let storage sync complete (or use Storage → Save Now) before reloading.
+
+Games explicitly marked for preload mount at startup even when launching another
+game directly. There is no 128/256 MiB cutoff. Unmarked games stay in OPFS;
+the selected launch game is loaded once. Preloads currently copy into MEMFS,
+so the total selected library must fit the device's available browser memory.
+A failed mount is logged and the remaining selected games are still attempted.
 
 The shell no longer rebuilds the controller selector when its device list is
 unchanged, skips discovery polling in hidden tabs and releases the temporary GPU

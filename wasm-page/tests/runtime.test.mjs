@@ -188,17 +188,34 @@ test('malformed ISO extents cannot request an unbounded allocation', async () =>
   await assert.rejects(ctx.isoFindBlobEntry(new Blob([bytes]), 'PSP_GAME/ICON0.PNG'), /Invalid ISO extent/);
 });
 
-test('legacy preload-all library cannot allocate multiple large disc images', async () => {
-  const loaded = [];
+test('startup mounts explicitly selected favorites of any size, skipping the game already launched', async () => {
+  const loaded = [], written = [];
+  const ctx = load(['preloadStoredGames'], {
+    OPFS_GAMES_DIR: 'games', VIRTUAL_GAME_DIR: '/games', selectedStoredGame: 'playing.iso', selectedGame: null,
+    opfsWalk: async () => [
+      { path: 'large.iso', size: 1800 * 1024 ** 2 }, { path: 'small.iso', size: 40 },
+      { path: 'playing.iso', size: 500 * 1024 ** 2 }, { path: 'unselected.iso', size: 80 },
+    ],
+    prunePreloadFavorites: () => ['large.iso', 'small.iso', 'playing.iso'],
+    opfsReadGame: async name => { loaded.push(name); return new Uint8Array(40); },
+    log() {}, setStatus() {}, showLoading() {}, formatBytes: String,
+  });
+  assert.equal(await ctx.preloadStoredGames({ mkdirTree() {}, writeFile: path => written.push(path) }), 2);
+  assert.deepEqual(loaded, ['large.iso', 'small.iso']);
+  assert.deepEqual(written, ['/games/large.iso', '/games/small.iso']);
+});
+
+test('a failed automount does not prevent other selected games from mounting', async () => {
+  const written = [];
   const ctx = load(['preloadStoredGames'], {
     OPFS_GAMES_DIR: 'games', VIRTUAL_GAME_DIR: '/games', selectedStoredGame: null, selectedGame: null,
-    opfsWalk: async () => [{ path: 'large.iso', size: 1800 * 1024 ** 2 }, { path: 'small.iso', size: 40 }],
-    prunePreloadFavorites: names => names, isMobileExperience: () => true,
-    opfsReadGame: async name => { loaded.push(name); return new Uint8Array(40); },
-    log: () => {}, setStatus: () => {}, showLoading: () => {}, formatBytes: String,
+    opfsWalk: async () => [{ path: 'bad.iso' }, { path: 'good.iso' }],
+    prunePreloadFavorites: names => names,
+    opfsReadGame: async name => { if (name === 'bad.iso') throw new Error('read failed'); return new Uint8Array(40); },
+    log() {}, setStatus() {}, showLoading() {}, formatBytes: String,
   });
-  await ctx.preloadStoredGames({ mkdirTree() {}, writeFile() {} });
-  assert.deepEqual(loaded, ['small.iso']);
+  assert.equal(await ctx.preloadStoredGames({ mkdirTree() {}, writeFile: path => written.push(path) }), 1);
+  assert.deepEqual(written, ['/games/good.iso']);
 });
 
 test('concurrent persistence requests run in sequence even after a failure', async () => {
@@ -296,6 +313,31 @@ test('failed preload never releases the dependency and starts the core without i
   assert.match(failures[0], /asset missing/);
 });
 
+test('direct game launch also runs library automount before releasing startup', async () => {
+  const events = [];
+  const noop = () => {};
+  const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
+    started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
+    SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
+    document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
+    setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
+    preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
+    addRunDependency: noop, removeRunDependency: () => events.push('ready'),
+    preloadAssets: async () => {}, loadPersistedFiles: async () => {}, forceGamesDirectoryConfig: async () => {},
+    preloadGame: async () => { events.push('selected'); return '/games/playing.iso'; },
+    preloadStoredGames: async () => events.push('automount'), emulatorLaunchArgs: () => [], FS: {},
+    failRuntime: message => assert.fail(message),
+  });
+  ctx.window = ctx; ctx.crossOriginIsolated = true;
+  await ctx.start();
+  ctx.Module.preRun[0]();
+  await new Promise(r => setTimeout(r, 0));
+  assert.deepEqual(events, ['selected', 'automount', 'ready']);
+  assert.deepEqual(Array.from(ctx.Module.arguments), ['/games/playing.iso']);
+});
+
 test('native PSP saves support SAVEDATA and individual game folders without changing slot names', () => {
   const ctx = load(['nativeSaveRelativePath']);
   for (const path of ['PSP/SAVEDATA/ULUS12345/PARAM.SFO', 'SAVEDATA/ULUS12345/PARAM.SFO', 'ULUS12345/PARAM.SFO']) {
@@ -381,38 +423,45 @@ test('startup rejects a partial core instead of loading mismatched JS/WASM/data'
   await assert.rejects(ctx.selectBuildDir(), /Emulator files are missing/);
 });
 
-test('performance profile reduces rendering cost without changing framebuffer compatibility or CPU timing', () => {
-  const config = ast.statements.find(n => ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText(ast) === 'WEB_PERFORMANCE_CONFIG')).getText(ast);
-  let profile = null;
-  const ctx = load(['applyPerformanceConfig', 'patchIniValue'], {
-    preferences: { getItem: () => profile },
-  }, config);
-  const original = '[Graphics]\nInternalResolution = 4\nSkipBufferEffects = False\nFrameSkip = 0\n[CPU]\nCPUCore = 3\n';
-  const result = ctx.applyPerformanceConfig(original);
-  assert.match(result, /InternalResolution\s*=\s*1/);
-  assert.match(result, /HardwareTransform\s*=\s*True/);
-  assert.match(result, /AnisotropyLevel\s*=\s*0/);
-  assert.match(result, /SkipBufferEffects = False/);
-  assert.match(result, /FrameSkip = 0/);
-  assert.match(result, /CPUCore = 3/);
-  assert.equal(ctx.applyPerformanceConfig(result), result);
-  profile = 'custom';
-  assert.equal(ctx.applyPerformanceConfig(original), original);
+test('startup preserves saved graphics, timing, audio and touch settings across repeated restores', async () => {
+  const declarations = ast.statements.filter(n => ts.isVariableStatement(n) &&
+    n.declarationList.declarations.some(d => ['WEB_NATIVE_TIMING_CONFIG', 'WEB_STABILITY_CONFIG', 'MOBILE_TOUCH_CONFIG'].includes(d.name.getText(ast))))
+    .map(n => n.getText(ast)).join('\n');
+  const original = '[Graphics]\nInternalResolution = 4\nSoftwareRenderer = True\nTexScalingLevel = 5\nAnisotropyLevel = 4\nMultiSampleLevel = 3\nFrameSkip = 2\nAutoFrameSkip = True\nVerticalSync = False\n[General]\nForceLagSync2 = False\nUIScaleFactor = 1\n[Sound]\nEnable = False\n[Control]\nShowTouchControls = False\n';
+  for (const mobile of [false, true]) {
+    for (const legacyProfile of [null, 'performance', 'custom']) {
+      let config = original;
+      const ctx = load(['forceGamesDirectoryConfig', 'patchIniValue', 'applyMultiplayerTimingConfig'], {
+        PERSIST_ROOTS: ['/config'], VIRTUAL_GAME_DIR: '/games',
+        isMobileExperience: () => mobile, fsMkdirP() {},
+        loadNetworkConfig: () => ({ enabled: false }),
+        preferences: { getItem: () => legacyProfile },
+        applyNetworkConfig: async (_, text) => text,
+        opfsPut: async () => {}, log() {},
+      }, declarations);
+      const FS = { readFile: () => new TextEncoder().encode(config), writeFile: (_, bytes) => { config = new TextDecoder().decode(bytes); } };
+      await ctx.forceGamesDirectoryConfig(FS);
+      for (const line of original.split('\n').filter(line => line.includes('='))) assert.ok(config.includes(line), line);
+      assert.match(config, /CurrentDirectory = \/games/);
+      assert.match(config, /AudioBufferSize = 1024/);
+      const saved = config;
+      await ctx.forceGamesDirectoryConfig(FS);
+      assert.equal(config, saved);
+    }
+  }
 });
 
-test('multiplayer uses browser pacing without native lag sleeps or frame skipping, preserving offline and custom profiles', () => {
-  let enabled = true, profile = null;
+test('multiplayer disables native lag sleeps while retaining user graphics settings', () => {
+  let enabled = true;
   const ctx = load(['applyMultiplayerTimingConfig', 'patchIniValue'], {
-    loadNetworkConfig: () => ({ enabled }), preferences: { getItem: () => profile },
+    loadNetworkConfig: () => ({ enabled }),
   });
   const original = '[General]\nForceLagSync2 = True\n[Graphics]\nFrameSkip = 1\nAutoFrameSkip = True\n';
   const result = ctx.applyMultiplayerTimingConfig(original);
   assert.match(result, /ForceLagSync2\s*=\s*False/);
-  assert.match(result, /FrameSkip\s*=\s*0/);
-  assert.match(result, /AutoFrameSkip\s*=\s*False/);
+  assert.match(result, /FrameSkip = 1/);
+  assert.match(result, /AutoFrameSkip = True/);
   enabled = false;
-  assert.equal(ctx.applyMultiplayerTimingConfig(original), original);
-  enabled = true; profile = 'custom';
   assert.equal(ctx.applyMultiplayerTimingConfig(original), original);
 });
 
