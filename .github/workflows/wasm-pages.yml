@@ -175,14 +175,17 @@ jobs:
       packages: read
     environment:
       name: oracle-relay
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/relay-docker-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout deployment configuration
         uses: actions/checkout@v6
         with:
           persist-credentials: false
           sparse-checkout: deploy/relay
+
+      - name: Configure temporary Docker credentials directory
+        shell: bash
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/relay-docker-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR for pull
         uses: docker/login-action@v3
