@@ -14,6 +14,71 @@ function load(names, globals = {}, declarations = '') {
   return context;
 }
 
+test('mobile keyboard preserves portrait height and tracks the visible viewport while opening and closing', () => {
+  for (const hasScreenOrientation of [true, false]) {
+    const styles = new Map();
+    const classes = new Map();
+    const window = {
+      innerWidth: 390, innerHeight: 844,
+      visualViewport: { width: 390, height: 844, offsetTop: 0, offsetLeft: 0 },
+      screen: hasScreenOrientation ? { orientation: { type: 'portrait-primary' } } : {},
+    };
+    const document = {
+      activeElement: null,
+      documentElement: { style: { setProperty: (key, value) => styles.set(key, value) } },
+      body: { classList: { toggle: (name, value) => classes.set(name, !!value) } },
+    };
+    const ctx = load(['syncViewportSize', 'fullscreenElement', 'viewportOrientation', 'isTextEntryActive', 'revealPanelInput'],
+      { window, document }, 'let stableViewportWidth = 0, stableViewportHeight = 0, stableViewportOrientation = "";');
+    ctx.syncViewportSize({ reset: true });
+    document.activeElement = { tagName: 'INPUT' };
+    for (const height of [600, 340, 300]) {
+      window.visualViewport.height = height;
+      window.visualViewport.offsetTop = 90;
+      ctx.syncViewportSize();
+      assert.equal(classes.get('keyboard-open'), true);
+      assert.equal(styles.get('--app-h'), '844px');
+      assert.equal(styles.get('--visual-h'), height + 'px');
+      assert.equal(styles.get('--visual-top'), '90px');
+    }
+    // Android may also resize innerHeight; this must not reset the baseline.
+    window.innerHeight = 300;
+    ctx.syncViewportSize();
+    assert.equal(classes.get('keyboard-open'), true);
+    assert.equal(styles.get('--app-h'), '844px');
+    window.innerHeight = window.visualViewport.height = 844;
+    window.visualViewport.offsetTop = 0;
+    ctx.syncViewportSize();
+    assert.equal(classes.get('keyboard-open'), false);
+    assert.equal(styles.get('--visual-top'), '0px');
+    // A real rotation must still establish a new baseline.
+    window.innerWidth = window.visualViewport.width = 844;
+    window.innerHeight = window.visualViewport.height = 390;
+    if (hasScreenOrientation) window.screen.orientation.type = 'landscape-primary';
+    ctx.syncViewportSize();
+    assert.equal(classes.get('keyboard-open'), false);
+    assert.equal(styles.get('--app-h'), '390px');
+  }
+});
+
+test('keyboard viewport changes reveal the active field by scrolling only its panel section', () => {
+  const scroller = { scrollTop: 0, getBoundingClientRect: () => ({ top: 110, bottom: 300 }) };
+  let field = { top: 320, bottom: 364 };
+  const input = {
+    tagName: 'INPUT', closest: () => scroller, getBoundingClientRect: () => field,
+    scrollIntoView: () => assert.fail('must not pan the page'),
+  };
+  const ctx = load(['revealPanelInput', 'isTextEntryActive'], { document: { activeElement: input } });
+  ctx.revealPanelInput();
+  assert.equal(scroller.scrollTop, 80);
+  field = { top: 100, bottom: 144 };
+  ctx.revealPanelInput();
+  assert.equal(scroller.scrollTop, 54);
+  field = { top: 150, bottom: 194 };
+  ctx.revealPanelInput();
+  assert.equal(scroller.scrollTop, 54);
+});
+
 test('LAN invitation imports relay and room without launching a game', () => {
   const saved = new Map();
   let cleaned;

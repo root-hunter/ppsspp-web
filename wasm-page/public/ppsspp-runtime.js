@@ -179,10 +179,21 @@ function syncViewportAfterFocus() {
   syncViewportSize({ reset: false });
   setTimeout(() => {
     syncViewportSize({ reset: false });
-    if (isTextEntryActive()) {
-      document.activeElement.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
-    }
   }, 260);
+}
+
+function revealPanelInput() {
+  const input = document.activeElement;
+  const scroller = input?.closest?.("#sidePanel .tab-panel.active");
+  if (!scroller || !isTextEntryActive()) return;
+  const field = input.getBoundingClientRect();
+  const bounds = scroller.getBoundingClientRect();
+  // Scroll only the section: scrolling the page can pan the viewport on iOS.
+  if (field.bottom > bounds.bottom - 16) {
+    scroller.scrollTop += field.bottom - bounds.bottom + 16;
+  } else if (field.top < bounds.top + 16) {
+    scroller.scrollTop += field.top - bounds.top - 16;
+  }
 }
 
 function syncViewportSize(options = {}) {
@@ -194,7 +205,9 @@ function syncViewportSize(options = {}) {
   const layoutWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || visualWidth);
   const layoutHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || visualHeight);
   const width = activeFullscreen ? Math.max(1, layoutWidth || visualWidth) : Math.max(1, visualWidth || layoutWidth);
-  const orientation = viewportOrientation(width, activeFullscreen ? layoutHeight : visualHeight);
+  // The keyboard can make a portrait visual viewport wider than it is tall.
+  const orientation = window.screen?.orientation?.type?.split("-")[0]
+    || viewportOrientation(layoutWidth, stableViewportHeight || layoutHeight);
   const orientationChanged = stableViewportOrientation && stableViewportOrientation !== orientation;
   let widthChanged = !stableViewportWidth || Math.abs(width - stableViewportWidth) > 80;
   if (reset || orientationChanged) {
@@ -222,6 +235,9 @@ function syncViewportSize(options = {}) {
   document.documentElement.style.setProperty("--viewport-w", width + "px");
   document.documentElement.style.setProperty("--app-h", appHeight + "px");
   document.documentElement.style.setProperty("--visual-h", safeVisualHeight + "px");
+  document.documentElement.style.setProperty("--visual-top", Math.max(0, vv?.offsetTop || 0) + "px");
+  document.documentElement.style.setProperty("--visual-left", Math.max(0, vv?.offsetLeft || 0) + "px");
+  revealPanelInput();
 }
 
 function syncFullscreenOverlays() {
@@ -253,7 +269,7 @@ syncViewportSize({ reset: true });
 window.addEventListener("resize", () => syncViewportSize({ reset: false }), { passive: true });
 window.addEventListener("orientationchange", () => scheduleRuntimeResize(true), { passive: true });
 window.screen?.orientation?.addEventListener?.("change", () => scheduleRuntimeResize(true));
-window.visualViewport?.addEventListener("resize", () => scheduleRuntimeResize(false), { passive: true });
+window.visualViewport?.addEventListener("resize", () => syncViewportSize({ reset: false }), { passive: true });
 window.visualViewport?.addEventListener("scroll", () => syncViewportSize({ reset: false }), { passive: true });
 document.addEventListener("focusin", syncViewportAfterFocus);
 document.addEventListener("focusout", () => setTimeout(() => syncViewportSize({ reset: false }), 120));

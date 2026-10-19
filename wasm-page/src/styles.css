@@ -20,6 +20,9 @@
   --glow:      0 0 0 3px rgba(118,188,236,.25);
   --viewport-w: 100vw;
   --app-h:     100dvh;
+  --visual-h:  100dvh;
+  --visual-top: 0px;
+  --visual-left: 0px;
   --stage-pad: 12px;
   --panel-w:   clamp(320px, 28vw, 420px);
 }
@@ -676,9 +679,9 @@ body.panel-open #panelBackdrop { display: block; }
     padding: 0 0 env(safe-area-inset-bottom); overflow: hidden;
   }
   body.keyboard-open.panel-open aside {
-    position: fixed; inset: max(8px, env(safe-area-inset-top)) 0 auto;
-    height: calc(var(--visual-h) - max(8px, env(safe-area-inset-top)));
-    max-height: calc(var(--visual-h) - max(8px, env(safe-area-inset-top)));
+    position: fixed; inset: var(--visual-top) auto auto var(--visual-left);
+    width: var(--viewport-w); height: var(--visual-h); max-height: var(--visual-h);
+    border-radius: 0; padding-bottom: 0;
   }
   body.panel-open aside .tab-panel.active {
     display: block; min-height: 0; overflow: auto;
@@ -870,11 +873,11 @@ body.panel-open #panelBackdrop { display: block; }
     padding-right: env(safe-area-inset-right);
   }
   body.keyboard-open.panel-open aside {
-    top: var(--h); height: calc(var(--visual-h) - var(--h));
-    max-height: calc(var(--visual-h) - var(--h));
+    top: var(--visual-top); left: var(--visual-left); right: auto;
+    width: var(--viewport-w); height: var(--visual-h); max-height: var(--visual-h);
   }
   body.browser-fullscreen.keyboard-open.panel-open aside {
-    top: 0; height: var(--visual-h); max-height: var(--visual-h);
+    top: var(--visual-top); height: var(--visual-h); max-height: var(--visual-h);
   }
 
 }
