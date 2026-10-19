@@ -57,6 +57,10 @@ Keep the application's COOP/COEP/CORP response headers. A proxy path prefix can 
 
 ### Android certificate trust on a LAN
 
+For the local `rhm.lab.home.arpa` deployment, use `https://rhm.lab.home.arpa:8081` for PPSSPP, `wss://rhm.lab.home.arpa:8081/adhoc` for the relay, and `http://rhm.lab.home.arpa:8082/setup` for phone setup. The ignored `.env` sets `RELAY_PUBLIC_ORIGIN` so invitations and QR codes advertise this hostname. See `.env.example` for the configuration. The name must resolve to the server on each LAN client, and the relay certificate must include `rhm.lab.home.arpa` in its Subject Alternative Names.
+
+This deployment uses the network's **RootHunterLabs Root CA**, through **RootHunterLabs Intermediate CA**. The installed server certificate and key are under `/etc/ssl/rhm/`; the relay's validated deployment copies are in the ignored `server/network-tls/` directory and the persistent `/certs` volume. The setup download serves the network root CA. After certificate renewal, update the relay's certificate/key copies and restart the container; renewing the host files alone does not update the running relay. Check the issued certificate's expiry, since the network CA may issue short-lived certificates. The earlier `server/local-ca/` mkcert CA is no longer used by this deployment.
+
 For guided pairing, open **Network → Connect phone · QR & certificate**, or visit `http://<server-LAN-IP>:8082/setup`. Scan the QR on the computer using the phone camera. The page downloads the public CA, explains the Android installation step, and opens the local PPSSPP app with the relay and room prefilled and networking enabled. It does not start a game. The QR preserves the room through `?room=...`. Android still requires manual approval to install a CA.
 
 Compose publishes a separate HTTP bootstrap port (`PPSSPP_SETUP_PORT`, default 8082) so the CA can be downloaded before the phone trusts HTTPS. This port exposes only the setup page, QR and public certificate; game traffic stays on WSS port 8081. To enable the download with an existing local CA, copy its **public certificate only** into the persistent TLS volume:

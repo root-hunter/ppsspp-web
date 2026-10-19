@@ -1,6 +1,8 @@
 server/cert.pem
 server/key.pem
 server/local-ca/
+server/network-tls/
+.env
 /assets
 /build-wasm/
 /build-wasm-release/
