@@ -410,7 +410,19 @@ on(panelToggleBtn, "click", () => {
 on("panelCloseBtn", "click", () => setPanelOpen(false));
 on("panelBackdrop", "click", () => setPanelOpen(false));
 
+importNetworkInvite();
 updateNetworkConfigUI();
+byId("networkPhoneSetupBtn")?.addEventListener("click", () => {
+  try {
+    const relay = window.PPSSPPAdhoc.endpoint(networkServerInput?.value);
+    const setup = new URL(relay.href.replace(/^ws/, "http"));
+    setup.protocol = "http:";
+    setup.port = "8082";
+    setup.pathname = "/setup";
+    setup.search = new URLSearchParams({ room: byId("networkRoomInput")?.value.trim() || "public" });
+    window.open(setup.href, "_blank", "noopener,noreferrer");
+  } catch (e) { if (networkActivityEl) networkActivityEl.textContent = e.message; }
+});
 networkUseThisHostBtn?.addEventListener("click", () => {
   if (networkServerInput) networkServerInput.value = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
   saveNetworkConfigFromUI();
@@ -2040,6 +2052,20 @@ function loadNetworkConfig() {
   return { enabled: preferences.getItem(NETWORK_ENABLE_KEY) === "1", server,
     room: preferences.getItem("ppsspp-network-room") || "public",
     nick: sanitizeNetworkNick(preferences.getItem(NETWORK_NICK_KEY)), mac: sanitizeNetworkMac(mac) };
+}
+
+function importNetworkInvite() {
+  const invite = new URLSearchParams(location.hash.slice(1));
+  if (!invite.has("relay")) return;
+  try {
+    const server = window.PPSSPPAdhoc.endpoint(invite.get("relay")).href;
+    const room = invite.get("room") || "public";
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(room)) throw new Error("Invalid invitation room");
+    preferences.setItem(NETWORK_SERVER_KEY, server);
+    preferences.setItem("ppsspp-network-room", room);
+    preferences.setItem(NETWORK_ENABLE_KEY, "1");
+    history.replaceState(null, "", location.pathname + location.search);
+  } catch (e) { log("Network invitation: " + e.message, "warn"); }
 }
 
 function testWebSocket(url, timeoutMs = 5000) {

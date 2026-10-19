@@ -55,6 +55,22 @@ location / {
 
 Keep the application's COOP/COEP/CORP response headers. A proxy path prefix can be included in the configured endpoint when the proxy strips that prefix. Only port 8081 needs publishing. The optional legacy separate-port listener uses the same v1 authentication/framing; it is not native TCP compatibility.
 
+### Android certificate trust on a LAN
+
+For guided pairing, open **Network → Connect phone · QR & certificate**, or visit `http://<server-LAN-IP>:8082/setup`. Scan the QR on the computer using the phone camera. The page downloads the public CA, explains the Android installation step, and opens the local PPSSPP app with the relay and room prefilled and networking enabled. It does not start a game. The QR preserves the room through `?room=...`. Android still requires manual approval to install a CA.
+
+Compose publishes a separate HTTP bootstrap port (`PPSSPP_SETUP_PORT`, default 8082) so the CA can be downloaded before the phone trusts HTTPS. This port exposes only the setup page, QR and public certificate; game traffic stays on WSS port 8081. To enable the download with an existing local CA, copy its **public certificate only** into the persistent TLS volume:
+
+```sh
+docker compose cp server/local-ca/ppsspp-relay-ca.crt ppsspp-wasm-server:/certs/ca.crt
+```
+
+The certificate must be the CA that signed the active relay certificate. Without it, setup returns 503 rather than offering an unrelated certificate. For direct Python serving add `--setup-port 8082 --ca-cert /path/to/public-ca.crt`. Set `RELAY_PUBLIC_ORIGIN=https://<server-LAN-IP>:8081` in Compose when using a different published HTTPS port, or to make QR links use the LAN address even when opening setup from localhost. The app's shortcut assumes setup port 8082; with a custom port open the setup URL directly. QR generation runs locally using `qrencode` (included in the Docker image), without sending addresses or certificates to third-party services.
+
+`ERR_CERT_AUTHORITY_INVALID` means the browser does not trust the relay's certificate issuer. The generated self-signed certificate is intended for initial local testing. For Android LAN use, issue a server certificate with the server's LAN IP in its Subject Alternative Names and install its local CA certificate on each client device. [mkcert](https://github.com/FiloSottile/mkcert#mobile-devices) supports this workflow. Store local CA material under the ignored `server/local-ca/` directory; keep `rootCA-key.pem` and server private keys private. Transfer only the public CA certificate (`rootCA.pem`, optionally renamed to `ppsspp-relay-ca.crt`) to the phone.
+
+On Android, use Settings → Security → Encryption & credentials → Install a certificate → CA certificate (labels vary by device; see [Google's instructions](https://support.google.com/pixelphone/answer/2844832)). Restart the browser, then open `https://<server-LAN-IP>:8081/healthz` and verify that certificate validation succeeds before testing WSS. Other clients also need to trust this CA. If the LAN IP changes, reissue the server certificate for the new IP; the existing CA can still be used. The active Compose certificate and key live in the persistent `relay-tls` volume at `/certs/cert.pem` and `/certs/key.pem`, not in the checkout's `server/cert.pem` and `server/key.pem`.
+
 Environment variables:
 
 | Variable | Default | Meaning |

@@ -14,6 +14,29 @@ function load(names, globals = {}, declarations = '') {
   return context;
 }
 
+test('LAN invitation imports relay and room without launching a game', () => {
+  const saved = new Map();
+  let cleaned;
+  const ctx = load(['importNetworkInvite'], {
+    URLSearchParams,
+    location: { hash: '#relay=wss%3A%2F%2F192.168.10.172%3A8081%2Fadhoc&room=game-night', pathname: '/', search: '' },
+    window: { PPSSPPAdhoc: { endpoint: value => new URL(value) } },
+    preferences: { setItem: (key, value) => saved.set(key, value) },
+    NETWORK_SERVER_KEY: 'server', NETWORK_ENABLE_KEY: 'enabled',
+    history: { replaceState: (_, __, value) => { cleaned = value; } },
+    log: () => {},
+  });
+  ctx.importNetworkInvite();
+  assert.equal(saved.get('server'), 'wss://192.168.10.172:8081/adhoc');
+  assert.equal(saved.get('ppsspp-network-room'), 'game-night');
+  assert.equal(saved.get('enabled'), '1');
+  assert.equal(cleaned, '/');
+  saved.clear();
+  ctx.location.hash = '#relay=wss%3A%2F%2Fexample.org%2Fadhoc&room=%3Cscript%3E';
+  ctx.importNetworkInvite();
+  assert.equal(saved.size, 0);
+});
+
 test('SDL keyboard input is scoped to the canvas before native startup', () => {
   const env = { LANG: 'it_IT.UTF-8' };
   const ctx = load(['configureEmulatorKeyboard']);

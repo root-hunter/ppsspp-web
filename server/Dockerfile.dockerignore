@@ -1,6 +1,7 @@
 **
 !server/serve.py
 !server/relay.py
+!server/onboarding.py
 !wasm-page/
 !wasm-page/**
 wasm-page/.angular/

@@ -58,7 +58,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-19-keyboard-focus-v1';
+const RUNTIME_ASSET_VERSION = '2026-10-19-lan-setup-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

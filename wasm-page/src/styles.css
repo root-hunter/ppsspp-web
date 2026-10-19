@@ -1012,6 +1012,7 @@ button.danger:hover { background: rgba(255,95,95,.1); border-color: var(--danger
 .network-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 8px; }
 .network-actions { display: flex; gap: 8px; }
 .network-actions button { flex: 1; height: 30px; font-size: 11px; }
+#networkPhoneSetupBtn { width: 100%; min-height: 44px; margin: 12px 0; }
 .network-activity {
   margin-top: 12px; color: var(--muted); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
