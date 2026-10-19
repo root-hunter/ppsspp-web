@@ -170,6 +170,11 @@ function isTextEntryActive() {
   return el.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
+function configureEmulatorKeyboard(env) {
+  // SDL otherwise listens on window and prevents the form's default key actions.
+  env.SDL_EMSCRIPTEN_KEYBOARD_ELEMENT = "#canvas";
+}
+
 function syncViewportAfterFocus() {
   syncViewportSize({ reset: false });
   setTimeout(() => {
@@ -3933,7 +3938,6 @@ function reconnectKnownGamepadsForSDL(reason, force = false) {
     if (dispatchSDLGamepadReconnect(gp, reason, force)) n++;
   }
   if (n > 0) {
-    canvas?.focus();
     flashGamepadBadge();
   }
   return n;
@@ -3950,7 +3954,6 @@ function startSmartGamepadPolling() {
 function onGamepadConnected(e) {
   const gp = e.gamepad;
   rememberGamepad(gp, e.__ppssppSynthetic ? "refreshed" : "connected", { refreshSDL: false });
-  canvas?.focus();
 }
 function onGamepadDisconnected(e) {
   const gp = e.gamepad; connectedGamepads.delete(gp.index);
@@ -4471,6 +4474,7 @@ async function start() {
       if (left > 0) setStatus("Runtime init: " + left + " dependencies", "run");
     },
     preRun: [function () {
+      configureEmulatorKeyboard(ENV);
       if (loadNetworkConfig().enabled && !installSockFSAdhocRelay()) throw new Error("Ad Hoc transport unavailable in WASM build");
       log("preRun started.");
       addRunDependency("ppsspp-assets");

@@ -14,6 +14,34 @@ function load(names, globals = {}, declarations = '') {
   return context;
 }
 
+test('SDL keyboard input is scoped to the canvas before native startup', () => {
+  const env = { LANG: 'it_IT.UTF-8' };
+  const ctx = load(['configureEmulatorKeyboard']);
+  ctx.configureEmulatorKeyboard(env);
+  assert.equal(env.SDL_EMSCRIPTEN_KEYBOARD_ELEMENT, '#canvas');
+  assert.equal(env.LANG, 'it_IT.UTF-8');
+  const preRun = source.slice(source.indexOf('preRun: [function () {'));
+  assert.ok(preRun.indexOf('configureEmulatorKeyboard(ENV)') < preRun.indexOf('addRunDependency('));
+});
+
+test('controller connections and reconnects preserve the focused form control', () => {
+  const pad = { index: 0, connected: true };
+  const remembered = [];
+  let flashes = 0;
+  const ctx = load(['onGamepadConnected', 'reconnectKnownGamepadsForSDL'], {
+    canvas: { focus() { assert.fail('controller event stole keyboard focus'); } },
+    getBrowserGamepads: () => [pad],
+    rememberGamepad: gp => remembered.push(gp),
+    dispatchSDLGamepadReconnect: () => true,
+    flashGamepadBadge: () => flashes++,
+  });
+  ctx.onGamepadConnected({ gamepad: pad });
+  ctx.onGamepadConnected({ gamepad: pad, __ppssppSynthetic: true });
+  assert.equal(ctx.reconnectKnownGamepadsForSDL('window focus'), 1);
+  assert.equal(remembered.length, 3);
+  assert.equal(flashes, 1);
+});
+
 test('import stores the File/Blob directly and never enables startup preload', async () => {
   const blob = new Blob(['not an ISO']);
   blob.arrayBuffer = () => { throw new Error('whole-file allocation'); };
@@ -150,7 +178,8 @@ test('denied localStorage preserves tab preferences and removal semantics', () =
 test('failed preload never releases the dependency and starts the core without its files', async () => {
   const failures = [], removed = [];
   const noop = () => {};
-  const ctx = load(['start'], {
+  const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
@@ -165,6 +194,7 @@ test('failed preload never releases the dependency and starts the core without i
   ctx.window = ctx; ctx.crossOriginIsolated = true;
   await ctx.start();
   ctx.Module.preRun[0]();
+  assert.equal(ctx.ENV.SDL_EMSCRIPTEN_KEYBOARD_ELEMENT, '#canvas');
   await new Promise(r => setTimeout(r, 0));
   assert.deepEqual(removed, []);
   assert.match(failures[0], /asset missing/);

@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v8-adhoc-receive-yield";
+const CACHE_VERSION = "ppsspp-angular-v9-keyboard-focus";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
