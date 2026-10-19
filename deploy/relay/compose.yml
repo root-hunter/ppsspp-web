@@ -2,8 +2,12 @@ services:
   relay:
     image: ${RELAY_IMAGE:?Set RELAY_IMAGE to the published GHCR image digest}
     environment:
+      RELAY_AUTH_MODE: ${RELAY_AUTH_MODE:-open}
+      RELAY_AUTH_DB: /data/relay-auth.sqlite3
       RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
       RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
+    volumes:
+      - relay-auth:/data
     init: true
     read_only: true
     cap_drop: [ALL]
@@ -40,5 +44,6 @@ services:
         max-file: "3"
 
 volumes:
+  relay-auth:
   caddy-data:
   caddy-config:

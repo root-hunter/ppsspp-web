@@ -1405,3 +1405,12 @@ a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid 
 .diagnostic-actions { margin: 14px 0; }
 
 .saves-toolbar { flex-wrap: wrap; gap: 8px; }
+
+#networkInvitePanel { margin-top: 12px; }
+#networkInvitePanel p { margin: 10px 0; font-size: 12px; line-height: 1.5; }
+#networkInvitePanel button { margin: 4px 0; }
+#networkInvitePanel input:not([type="checkbox"]), #networkInvitePanel textarea { width: 100%; box-sizing: border-box; }
+#networkInviteQr { max-width: 100%; height: auto; margin: 12px auto; background: white; }
+#networkInviteQr:not([hidden]) { display: block; }
+#networkInviteVideo { width: 100%; max-height: 260px; object-fit: contain; }
+#networkInviteStatus { overflow-wrap: anywhere; }

@@ -12,16 +12,18 @@ import tempfile
 import threading
 import time
 import unittest
+from urllib.parse import urlencode
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import relay
+from relay_auth import RelayAuth, KeyStore
 from relay import AdhocWebSocketHandler, AdhocLobby, ThreadingAdhocWebSocketServer
 from serve import WasmThreadingHandler, WasmThreadingServer
 from functools import partial
 
 
 class Client:
-    def __init__(self, address, path='', token=None, mac=None, room='public', tls_context=None):
+    def __init__(self, address, path='', token=None, mac=None, room='public', tls_context=None, session_key=None):
         self.token = token or os.urandom(16).hex()
         self.socket = socket.create_connection(address, timeout=2)
         if tls_context:
@@ -33,6 +35,8 @@ class Client:
         self.reader = self.socket.makefile('rb')
         key = base64.b64encode(os.urandom(16)).decode()
         query = f'v=1&token={self.token}&room={room}'
+        if session_key is not None:
+            query += '&' + urlencode({'session_key': session_key})
         if mac:
             query += '&mac=' + mac.hex(':')
         self.socket.sendall((f'GET /adhoc{path}?{query} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
@@ -41,7 +45,7 @@ class Client:
         line = self.reader.readline()
         if b'101' not in line:
             self.close()
-            raise ConnectionError('upgrade rejected')
+            raise ConnectionError('upgrade rejected: ' + line.decode('ascii').strip())
         while self.reader.readline() != b'\r\n':
             pass
 
@@ -141,6 +145,63 @@ class RelayTest(unittest.TestCase):
                    tls_context=getattr(self, 'tls_context', None))
         self.clients.append(c)
         return c
+
+    def test_session_key_required_on_every_endpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = KeyStore(Path(directory) / 'auth.db')
+            store.initialize()
+            _, key = store.issue('Alice')
+            self.server.relay_auth = RelayAuth('keys', store)
+            for route in ('', '/udp', '/tcp-listen', '/tcp-connect'):
+                for supplied in (None, 'wrong-key', key + 'x'):
+                    with self.subTest(route=route, key=supplied), self.assertRaisesRegex(ConnectionError, '401 Unauthorized'):
+                        self.client(path=route, session_key=supplied)
+            with self.assertRaisesRegex(ConnectionError, '401 Unauthorized'):
+                self.client(room='public&session_key=wrong', session_key=key)
+            owner = self.client(session_key=key)
+            owner.login(bytes.fromhex('020000000001'))
+            data = self.client(path='/udp', token=owner.token, mac=owner.mac,
+                               room='public&port=3000', session_key=key)
+            self.assertIsNotNone(data)
+            with self.assertRaisesRegex(ConnectionError, '401 Unauthorized'):
+                self.client(path='/udp', token=owner.token, mac=owner.mac, room='public&port=3001')
+            _, other_key = store.issue('Bob')
+            with self.assertRaises(ConnectionError):
+                self.client(path='/udp', token=owner.token, mac=owner.mac,
+                            room='public&port=3001', session_key=other_key)
+            # Close before deleting the store, so writer threads finish normally.
+            for client in self.clients:
+                client.close()
+            self.clients.clear()
+
+    def test_revoke_disconnects_only_affected_user_and_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = KeyStore(Path(directory) / 'auth.db')
+            store.initialize()
+            alice_id, alice_key = store.issue('Alice')
+            _, bob_key = store.issue('Bob')
+            self.server.relay_auth = RelayAuth('keys', store)
+            alice = self.client(session_key=alice_key)
+            alice.login(bytes.fromhex('020000000001'))
+            data = self.client(path='/udp', token=alice.token, mac=alice.mac,
+                               room='public&port=3000', session_key=alice_key)
+            bob = self.client(session_key=bob_key)
+            bob.login(bytes.fromhex('020000000002'))
+            store.revoke(alice_id)
+            self.assertIsNone(data.recv())
+            self.assertIsNone(alice.recv())
+            ping = b'PR1' + struct.pack('>d', 1)
+            bob.send(ping)
+            self.assertEqual(bob.recv(), ping)
+            with self.assertRaisesRegex(ConnectionError, '401 Unauthorized'):
+                self.client(session_key=alice_key)
+            for client in self.clients:
+                client.close()
+            self.clients.clear()
+
+    def test_open_mode_does_not_require_session_key(self):
+        self.server.relay_auth = RelayAuth('open')
+        self.client().login(bytes.fromhex('020000000001'))
 
     def test_discovery_and_heartbeat(self):
         a, b = self.pair()

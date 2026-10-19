@@ -117,11 +117,8 @@ jobs:
           python-version: '3.13'
 
       - name: Test relay
-        # The existing suite also covers LAN QR onboarding.
         # Python matches the production image.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qrencode
           python3 -m unittest discover -s server/tests -v
 
       - name: Image name
@@ -200,4 +197,5 @@ jobs:
           RELAY_IMAGE: ${{ needs.build-relay.outputs.image }}@${{ needs.build-relay.outputs.digest }}
           RELAY_DOMAIN: ${{ secrets.RELAY_DOMAIN }}
           ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          RELAY_AUTH_MODE: ${{ vars.RELAY_AUTH_MODE }}
         run: bash deploy/relay/deploy.sh

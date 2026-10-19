@@ -10,8 +10,8 @@ from urllib.parse import urlparse
 from functools import partial
 
 
+from relay_auth import RelayAuth
 from relay import AdhocWebSocketHandler, ThreadingAdhocWebSocketServer, TrackedServerMixin
-from onboarding import SetupServer
 
 SERVER_PORT = 27312
 
@@ -42,6 +42,9 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         self.wasm_root = os.path.abspath(wasm_root)
         self.angular_root = os.path.join(self.web_root, "wasm-page", "dist", "ppsspp-web")
         super().__init__(*args, directory=self.web_root, **kwargs)
+
+    def log_request(self, code="-", size="-"):
+        self.log_message("%s %s %s", self.command, urlparse(self.path).path, code)
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -146,9 +149,6 @@ def main():
     parser.add_argument("--wasm-root", "--dir", dest="wasm_root", default=default_wasm_root, help="ppsspp-wasm checkout root containing build-wasm/ and build-wasm-release/.")
     parser.add_argument("--adhoc-ws", action="store_true", help="Enable the browser WebSocket ad hoc lobby server.")
     parser.add_argument("--adhoc-ws-port", type=int, default=SERVER_PORT, help="WebSocket ad hoc lobby port.")
-    parser.add_argument("--setup-port", type=int, default=0, help="Optional HTTP port for LAN certificate/QR setup.")
-    parser.add_argument("--ca-cert", default="", help="Public local CA certificate offered by setup (never a private key).")
-    parser.add_argument("--public-origin", default=os.getenv("RELAY_PUBLIC_ORIGIN", ""), help="Advertised HTTPS origin, including published port.")
     args = parser.parse_args()
 
     web_root = os.path.abspath(args.web_root)
@@ -157,16 +157,8 @@ def main():
 
     server = WasmThreadingServer((args.bind, args.port), handler)
 
+    server.relay_auth = RelayAuth.from_env()
     server.adhoc_enabled = args.adhoc_ws
-    setup_server = None
-    if args.setup_port:
-        if not args.ca_cert:
-            parser.error("--setup-port requires --ca-cert")
-        setup_server = SetupServer((args.bind, args.setup_port), ca_file=args.ca_cert,
-                                   https_port=args.port, public_origin=args.public_origin)
-        threading.Thread(target=setup_server.serve_forever, name="LANSetup", daemon=True).start()
-        print(f"Phone setup: http://{args.bind}:{args.setup_port}/setup", flush=True)
-
     if args.https:
         if not os.path.isabs(args.cert):
             args.cert = os.path.join(script_dir, args.cert)
@@ -185,6 +177,7 @@ def main():
     adhoc_server = None
     if args.adhoc_ws:
         adhoc_server = ThreadingAdhocWebSocketServer((args.bind, args.adhoc_ws_port), AdhocWebSocketHandler)
+        adhoc_server.relay_auth = server.relay_auth
         if ctx:
             adhoc_server.socket = ctx.wrap_socket(adhoc_server.socket, server_side=True, do_handshake_on_connect=False)
         threading.Thread(target=adhoc_server.serve_forever, name="AdhocWebSocketServer", daemon=True).start()
@@ -202,9 +195,6 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        if setup_server:
-            setup_server.shutdown()
-            setup_server.server_close()
         if adhoc_server:
             adhoc_server.shutdown()
             adhoc_server.server_close()

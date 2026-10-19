@@ -70,7 +70,7 @@ there is no automatic rollback.
 The production image contains only the Python relay server. The web application
 and WASM remain on GitHub Pages. Caddy forwards `/adhoc`, `/adhoc/*` and
 `/healthz`; other routes return 404. The existing root `docker-compose.yml`
-continues to provide the LAN web server and local certificate setup.
+continues to provide the LAN web server.
 
 ## Operations and rollback
 
@@ -97,3 +97,18 @@ limits default to 512 connections and a 60-second timeout; optional
 `RELAY_MAX_CONNECTIONS` and `RELAY_TIMEOUT` values can be added to the Compose
 environment file for manual operation (the next workflow deployment rewrites
 that file).
+
+### Optional per-user authentication
+
+Set the `RELAY_AUTH_MODE` variable in the `oracle-relay` GitHub environment to `keys` and run the deployment workflow. The default `open` allows public access. An empty key database in `keys` mode denies everyone until an administrator issues credentials. The `relay-auth` named volume persists the hashed credential database across deployments.
+
+On the server, run these commands from `$HOME/ppsspp-relay`:
+
+```sh
+docker compose --project-name ppsspp-relay exec relay python3 relay_admin.py issue --user alice --ttl-hours 168
+docker compose --project-name ppsspp-relay exec relay python3 relay_admin.py issue --user bob
+docker compose --project-name ppsspp-relay exec relay python3 relay_admin.py list
+docker compose --project-name ppsspp-relay exec relay python3 relay_admin.py revoke KEY_ID
+```
+
+The plaintext key is shown only at issuance. Give each user their own key; they enter it in Network before testing or launching. Invitations omit the personal credential by default; selecting **Include my session key** shares access as that user. Revoking or expiring a key blocks further access and disconnects its active sockets without interrupting other users. Database errors deny access. Back up the protected `relay-auth` volume and restrict container/host access: the CLI is the administration boundary, with no public management endpoint.

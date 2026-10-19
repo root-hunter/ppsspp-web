@@ -195,6 +195,7 @@
             </label>
             <input id="networkServerInput" type="text" spellcheck="false" autocomplete="off" placeholder="wss://example.org/adhoc">
             <input id="networkRoomInput" type="text" maxlength="32" placeholder="Room (public)" aria-label="Multiplayer room">
+            <input id="networkSessionKeyInput" type="password" maxlength="256" autocomplete="off" placeholder="Session key (leave empty for open relay)" aria-label="Relay session key">
             <div class="network-two">
               <input id="networkNickInput" type="text" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Nickname">
               <input id="networkMacInput" type="text" spellcheck="false" autocomplete="off" placeholder="MAC address">
@@ -208,7 +209,23 @@
             </div>
           </div>
           <div id="networkActivity" class="network-activity">Enable before launch. Both players need the same game version and room. Create and join sessions in the game's multiplayer menu. Reconnect by leaving and re-entering multiplayer.</div>
-          <button id="networkPhoneSetupBtn">Connect phone · QR &amp; certificate</button>
+          <details id="networkInvitePanel">
+            <summary>Play with friends · QR &amp; invitation</summary>
+            <p>Share the relay, room and optional session key. Your friends keep their own nickname and MAC. Use the same game version, then host or join inside the game.</p>
+            <label><input id="networkInviteIncludeKey" type="checkbox"> Include my session key (grants access as me)</label>
+            <button id="networkInviteCreateBtn">Create invitation QR</button>
+            <canvas id="networkInviteQr" hidden aria-label="Multiplayer invitation QR"></canvas>
+            <textarea id="networkInviteLink" rows="3" readonly hidden aria-label="Invitation link"></textarea>
+            <button id="networkInviteCopyBtn" hidden>Copy invitation</button>
+            <p>For separate access and revocation, each friend needs their own key from the relay administrator.</p>
+            <input id="networkInviteImportInput" type="text" autocomplete="off" placeholder="Paste an invitation link" aria-label="Invitation to import">
+            <button id="networkInviteImportBtn">Import invitation</button>
+            <label>Scan QR image <input id="networkInviteImageInput" type="file" accept="image/*" capture="environment"></label>
+            <button id="networkInviteScanBtn">Scan with camera</button>
+            <button id="networkInviteStopBtn" hidden>Stop camera</button>
+            <video id="networkInviteVideo" hidden muted playsinline aria-label="QR scanner preview"></video>
+            <p id="networkInviteStatus" role="status"></p>
+          </details>
           <details><summary>Live network diagnostics</summary><pre id="networkDiagnostics" aria-live="polite">Core networking idle</pre></details>
         </div>
       </div>

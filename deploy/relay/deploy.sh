@@ -10,6 +10,11 @@ set -euo pipefail
 [[ "$ACME_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]
 [[ "$RELAY_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
 
+[[ "${RELAY_AUTH_MODE:-open}" == open || "${RELAY_AUTH_MODE:-open}" == keys ]] || {
+  echo 'RELAY_AUTH_MODE must be open or keys.' >&2
+  exit 1
+}
+
 docker info > /dev/null
 docker compose version
 
@@ -21,6 +26,8 @@ cp "$(dirname "$0")/Caddyfile" "$deploy_dir/Caddyfile"
 umask 077
 printf 'RELAY_IMAGE=%s\nRELAY_DOMAIN=%s\nACME_EMAIL=%s\n' \
   "$RELAY_IMAGE" "$RELAY_DOMAIN" "$ACME_EMAIL" > "$deploy_dir/.env"
+
+printf 'RELAY_AUTH_MODE=%s\n' "${RELAY_AUTH_MODE:-open}" >> "$deploy_dir/.env"
 
 cd "$deploy_dir"
 compose=(docker compose --project-name ppsspp-relay --env-file .env -f compose.yml)

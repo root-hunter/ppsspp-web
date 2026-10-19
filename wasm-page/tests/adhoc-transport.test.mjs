@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 const source = readFileSync(new URL('../public/adhoc-transport.js', import.meta.url), 'utf8');
-function setup() {
+function setup(sessionKey = "") {
   const sockets = [];
   class WS {
     static OPEN = 1; static CONNECTING = 0; static CLOSED = 3; static CLOSING = 2;
@@ -23,7 +23,7 @@ function setup() {
   const ctx = vm.createContext({ TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, DataView, URL, URLSearchParams, crypto: webcrypto,
     performance, WebSocket: WS, location: { href: 'https://example.test/', protocol: 'https:' }, setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {} });
   vm.runInContext(source, ctx);
-  const api = ctx.PPSSPPAdhoc.install({ SOCKFS, FS: { ErrnoError }, config: { enabled: true, endpoint: 'wss://relay.test/adhoc', mac: '02:00:00:00:00:01', room: 'test' } });
+  const api = ctx.PPSSPPAdhoc.install({ SOCKFS, FS: { ErrnoError }, config: { enabled: true, endpoint: 'wss://relay.test/adhoc', mac: '02:00:00:00:00:01', room: 'test', sessionKey } });
   const sock = type => SOCKFS.createSocket(2, type, 0);
   function control() {
     const c = sock(1); c.__ppssppControl = true;
@@ -87,4 +87,17 @@ test('control disconnection closes data endpoints and propagates errors', () => 
   sockets[0].close(); assert.equal(sockets[1].readyState, 3);
   assert.equal(api.snapshot().state, 'disconnected');
   assert.throws(() => ops.recvmsg(s, 1, 0));
+});
+
+test('session key accompanies control and data sockets without replacing capability', () => {
+  const { control, sockets, ops, sock } = setup('secret-key');
+  control();
+  ops.bind(sock(2), '0.0.0.0', 3000);
+  assert.equal(sockets.length, 2);
+  for (const socket of sockets) {
+    const url = new URL(socket.url);
+    assert.equal(url.searchParams.get('session_key'), 'secret-key');
+    assert.match(url.searchParams.get('token'), /^[a-f0-9]{32}$/);
+  }
+  assert.equal(new URL(sockets[0].url).searchParams.get('token'), new URL(sockets[1].url).searchParams.get('token'));
 });

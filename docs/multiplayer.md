@@ -55,21 +55,30 @@ location / {
 
 Keep the application's COOP/COEP/CORP response headers. A proxy path prefix can be included in the configured endpoint when the proxy strips that prefix. Only port 8081 needs publishing. The optional legacy separate-port listener uses the same v1 authentication/framing; it is not native TCP compatibility.
 
-### Android certificate trust on a LAN
+### Invitations and optional relay authentication
 
-For the local `rhm.lab.home.arpa` deployment, use `https://rhm.lab.home.arpa:8081` for PPSSPP, `wss://rhm.lab.home.arpa:8081/adhoc` for the relay, and `http://rhm.lab.home.arpa:8082/setup` for phone setup. The ignored `.env` sets `RELAY_PUBLIC_ORIGIN` so invitations and QR codes advertise this hostname. See `.env.example` for the configuration. The name must resolve to the server on each LAN client, and the relay certificate must include `rhm.lab.home.arpa` in its Subject Alternative Names.
+In **Network → Play with friends · QR & invitation**, create a QR or copy the link after entering the relay URL, room and optional session key. Invitations use the current application URL, including its Pages base path; use a hostname reachable by friends, not localhost. Scan with a phone camera, the built-in camera scanner, or upload a QR image. Pasting an invitation link works without camera access. Generation and image decoding happen locally in the browser.
 
-This deployment uses the network's **RootHunterLabs Root CA**, through **RootHunterLabs Intermediate CA**. The installed server certificate and key are under `/etc/ssl/rhm/`; the relay's validated deployment copies are in the ignored `server/network-tls/` directory and the persistent `/certs` volume. The setup download serves the network root CA. After certificate renewal, update the relay's certificate/key copies and restart the container; renewing the host files alone does not update the running relay. Check the issued certificate's expiry, since the network CA may issue short-lived certificates. The earlier `server/local-ca/` mkcert CA is no longer used by this deployment.
+Opening/importing an invitation enables networking and saves relay and room, while preserving each player's nickname and MAC. It does not launch a game. Restart PPSSPP if already running, load the same game version, then host/join inside the game's multiplayer menu. Changing saved settings requires restarting the emulator.
 
-For guided pairing, open **Network → Connect phone · QR & certificate**, or visit `http://<server-LAN-IP>:8082/setup`. Scan the QR on the computer using the phone camera. The page downloads the public CA, explains the Android installation step, and opens the local PPSSPP app with the relay and room prefilled and networking enabled. It does not start a game. The QR preserves the room through `?room=...`. Android still requires manual approval to install a CA.
+Set `RELAY_AUTH_MODE=keys` on the server to require individually issued credentials on every control and data WebSocket upgrade. The default `open` mode allows public access. An invalid mode prevents startup. Keys mode with no issued credentials permits no clients. The persistent `/data/relay-auth.sqlite3` database stores only SHA-256 hashes of random 256-bit secrets, user labels, IDs, creation/expiry times and revocation timestamps.
 
-Compose publishes a separate HTTP bootstrap port (`PPSSPP_SETUP_PORT`, default 8082) so the CA can be downloaded before the phone trusts HTTPS. This port exposes only the setup page, QR and public certificate; game traffic stays on WSS port 8081. To enable the download with an existing local CA, copy its **public certificate only** into the persistent TLS volume:
+Manage credentials locally inside the container (use service `ppsspp-wasm-server` for local Compose, `relay` for production):
 
 ```sh
-docker compose cp server/local-ca/ppsspp-relay-ca.crt ppsspp-wasm-server:/certs/ca.crt
+docker compose exec relay python3 relay_admin.py issue --user alice --ttl-hours 168
+docker compose exec relay python3 relay_admin.py issue --user bob
+docker compose exec relay python3 relay_admin.py list
+docker compose exec relay python3 relay_admin.py revoke KEY_ID
 ```
 
-The certificate must be the CA that signed the active relay certificate. Without it, setup returns 503 rather than offering an unrelated certificate. For direct Python serving add `--setup-port 8082 --ca-cert /path/to/public-ca.crt`. Set `RELAY_PUBLIC_ORIGIN=https://<server-LAN-IP>:8081` in Compose when using a different published HTTPS port, or to make QR links use the LAN address even when opening setup from localhost. The app's shortcut assumes setup port 8082; with a custom port open the setup URL directly. QR generation runs locally using `qrencode` (included in the Docker image), without sending addresses or certificates to third-party services.
+`issue` displays the plaintext key only once. Give each user their own key and enter it in the client's **Session key** field. `list` never exposes secrets. `revoke` blocks new upgrades and closes that user's existing control/data sockets within approximately one second; other users stay connected. Expiry has the same effect. Invalid/missing credentials receive HTTP 401. Data sockets also need the credential used by their control connection. Database failures fail closed. Keep the `relay-auth` volume across container upgrades. For production configure the `RELAY_AUTH_MODE` GitHub environment variable to `keys`; local Compose reads `.env`.
+
+The key is kept in browser session storage, separate from the ephemeral per-browser capability, with an in-memory fallback if browser storage is unavailable. Check **Include my session key** only when you intend to share your credential; by default invitations share relay and room only. A keyless invitation preserves your existing personal key for the same relay and clears it when switching relays. When included, the key is placed in the URL fragment (not the initial HTTP request); importing removes the fragment from the address bar. An invitation grants access as the user whose key it contains: issue a separate key per friend when independent revocation is needed. Keys travel in the WSS upgrade query, so keep TLS enabled and avoid proxy logging of query strings. Room names remain grouping settings. There is no HTTP administration endpoint; CLI access requires access to the container host.
+
+The old certificate setup service and its separate HTTP port have been removed. Certificate trust must be configured on each client before WSS use.
+
+### Android certificate trust on a LAN
 
 `ERR_CERT_AUTHORITY_INVALID` means the browser does not trust the relay's certificate issuer. The generated self-signed certificate is intended for initial local testing. For Android LAN use, issue a server certificate with the server's LAN IP in its Subject Alternative Names and install its local CA certificate on each client device. [mkcert](https://github.com/FiloSottile/mkcert#mobile-devices) supports this workflow. Store local CA material under the ignored `server/local-ca/` directory; keep `rootCA-key.pem` and server private keys private. Transfer only the public CA certificate (`rootCA.pem`, optionally renamed to `ppsspp-relay-ca.crt`) to the phone.
 
@@ -81,6 +90,8 @@ Environment variables:
 | --- | --- | --- |
 | `PPSSPP_PORT` | 8081 | Published HTTPS port (Compose) |
 | `WASM_ROOT` | `./deps/ppsspp-wasm` | Read-only core assets mount |
+| `RELAY_AUTH_MODE` | `open` | `open` for public access, `keys` for per-user credentials |
+| `RELAY_AUTH_DB` | `/data/relay-auth.sqlite3` | Persistent credential database |
 | `RELAY_MAX_CONNECTIONS` | 512 | Maximum simultaneous connections, including incomplete upgrades |
 | `RELAY_TIMEOUT` | 60 | Idle socket timeout, seconds |
 | `RELAY_LATENCY_MS` | 0 | Artificial delay per forwarded message, development only |
@@ -90,7 +101,7 @@ Environment variables:
 
 ## Wire protocol and scheduling
 
-All upgrades require subprotocol `binary`, `v=1`, a random 128-bit capability (`token`) and, for control, a room. Data sockets must present the same capability and MAC as a logged-in control connection. Capabilities are ephemeral, never stored in the INI and not a substitute for user authentication or private-room access controls. Public rooms are open to anyone who knows the room name.
+All upgrades require subprotocol `binary`, `v=1`, a random 128-bit capability (`token`) and, for control, a room. Data sockets must present the same capability and MAC as a logged-in control connection. Capabilities are ephemeral, never stored in the INI and not a substitute for user authentication or private-room access controls. In `RELAY_AUTH_MODE=keys`, every upgrade also requires `session_key`. On an open relay, rooms are accessible to anyone who knows the room name.
 
 - `/adhoc`: existing packed PRO control packets, including 144-byte login, 9-byte connect, scan, disconnect, chat and ping. Login yields a transport-only `PA1` + four network-order IPv4 bytes. The adapter consumes this acknowledgement and exposes only real PRO notifications to the HLE. Virtual IPv4 addresses are internal aliases for registered PSP MACs.
 - `/adhoc/udp`: `PU1`, one-byte ASCII host length, host, big-endian uint16 port, then a complete datagram. Source metadata is reconstructed by the relay from the registered owner, never trusted from the packet. Broadcast `255.255.255.255` reaches matching ports in the same room/game/group, excluding the sender.
@@ -110,6 +121,7 @@ WSS runs over TCP: loss can delay later datagrams on a single PDP socket, and mu
 make test-multiplayer
 npm --prefix wasm-page test
 npm --prefix wasm-page run build:pages
+node scripts/test-network-invites-browser.mjs
 ```
 
 For the actual WASM test probe (kept out of normal builds):

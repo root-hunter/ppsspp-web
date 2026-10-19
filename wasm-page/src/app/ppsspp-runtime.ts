@@ -1,3 +1,4 @@
+import { setupNetworkInvites } from './network-invites';
 import { DOCUMENT } from '@angular/common';
 import { Injectable, inject } from '@angular/core';
 import {
@@ -58,7 +59,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-19-lan-setup-v1';
+const RUNTIME_ASSET_VERSION = '2026-10-20-network-invites-v2';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -74,6 +75,7 @@ export class PpssppRuntime {
     createIcons({ icons: PPSSPP_ICONS });
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
+    setupNetworkInvites(this.document);
   }
 
   private loadScript(src: string, id: string): Promise<void> {

@@ -68,7 +68,7 @@
     function url(path, params = {}) {
       const result = endpoint(cfg.endpoint);
       result.pathname += path;
-      result.search = new URLSearchParams({ v: '1', token: capability, room: cfg.room || 'public', ...params }).toString();
+      result.search = new URLSearchParams({ v: '1', token: capability, room: cfg.room || 'public', ...(cfg.sessionKey ? { session_key: cfg.sessionKey } : {}), ...params }).toString();
       return result.href;
     }
     function allocate(sock, port = 0) {

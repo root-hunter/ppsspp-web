@@ -19,6 +19,7 @@ import threading
 import time
 import random
 from urllib.parse import parse_qs, urlparse
+from relay_auth import RelayAuth, AuthError
 
 MAX_PACKET = 65535 + 64
 MAX_QUEUE = 1024 * 1024
@@ -294,6 +295,12 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             raise ProtocolError('invalid WebSocket key')
         parsed = urlparse(path)
         params = parse_qs(parsed.query)
+        self.auth = getattr(self.server, 'relay_auth', None) or RelayAuth.from_env()
+        try:
+            self.key_id = self.auth.authorize(params)
+        except AuthError as exc:
+            self.request.sendall(b'HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            raise ProtocolError(str(exc)) from exc
         token = params.get('token', [''])[0]
         if params.get('v') != ['1'] or not re.fullmatch('[a-f0-9]{32}', token):
             raise ProtocolError('relay v1 capability required')
@@ -304,10 +311,13 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 if not re.fullmatch('[A-Za-z0-9_-]{1,32}', room):
                     raise ProtocolError('invalid room')
                 self.user = AdhocUser(self, token, room)
+                self.user.key_id = self.key_id
                 self.lobby.add(self.user)
             elif route in ('/udp', '/tcp-listen', '/tcp-connect'):
                 self.mode = route[1:]
                 self.owner = self.lobby.owner(token, params.get('mac', [''])[0])
+                if self.owner.key_id != self.key_id:
+                    raise ProtocolError('data credential must match control credential')
                 self.port = int(params.get('port', ['0'])[0])
                 if not 0 < self.port < 65536:
                     raise ProtocolError('invalid port')
@@ -425,6 +435,10 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         next_ping = time.monotonic() + HEARTBEAT_INTERVAL
         try:
             while self.alive:
+                if not self.auth.active(self.key_id):
+                    log('access_revoked', key_id=self.key_id)
+                    self.stop()
+                    return
                 now = time.monotonic()
                 if now >= next_ping:
                     self.request.sendall(self._frame(secrets.token_bytes(4), 9))
@@ -437,8 +451,12 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 except queue.Empty:
                     continue
                 delay = due - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
+                while delay > 0:
+                    time.sleep(min(1, delay))
+                    if not self.alive or not self.auth.active(self.key_id):
+                        self.stop()
+                        return
+                    delay = due - time.monotonic()
                 self.request.sendall(self._frame(data, opcode))
                 if opcode == 8:
                     self.close_sent.set()

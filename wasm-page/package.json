@@ -16,13 +16,16 @@
     "@angular/compiler": "22.2.3",
     "@angular/core": "22.2.3",
     "@angular/platform-browser": "22.2.3",
+    "jsqr": "^1.4.0",
     "lucide": "1.59.0",
+    "qrcode": "^1.5.4",
     "tslib": "2.8.1"
   },
   "devDependencies": {
     "@angular/build": "22.2.3",
     "@angular/cli": "22.2.3",
     "@angular/compiler-cli": "22.2.3",
+    "@types/qrcode": "^1.5.6",
     "typescript": "6.0.3"
   },
   "engines": {

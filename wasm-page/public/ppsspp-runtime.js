@@ -393,6 +393,7 @@ const driveActivityEl = byId("driveActivity");
 const driveRemoteList = byId("driveRemoteList");
 const driveBadgeEl    = byId("driveBadge");
 const driveBadgeText  = byId("driveBadgeText");
+let networkSessionKey = "";
 const networkEnableToggle = byId("networkEnableToggle");
 const networkServerInput  = byId("networkServerInput");
 const networkNickInput    = byId("networkNickInput");
@@ -428,17 +429,22 @@ on("panelBackdrop", "click", () => setPanelOpen(false));
 
 importNetworkInvite();
 updateNetworkConfigUI();
-byId("networkPhoneSetupBtn")?.addEventListener("click", () => {
-  try {
-    const relay = window.PPSSPPAdhoc.endpoint(networkServerInput?.value);
-    const setup = new URL(relay.href.replace(/^ws/, "http"));
-    setup.protocol = "http:";
-    setup.port = "8082";
-    setup.pathname = "/setup";
-    setup.search = new URLSearchParams({ room: byId("networkRoomInput")?.value.trim() || "public" });
-    window.open(setup.href, "_blank", "noopener,noreferrer");
-  } catch (e) { if (networkActivityEl) networkActivityEl.textContent = e.message; }
-});
+window.PPSSPPNetworkInvites = {
+  create(includeKey = false) {
+    const cfg = saveNetworkConfigFromUI();
+    const url = new URL(location.href);
+    url.search = "";
+    url.hash = new URLSearchParams({ relay: cfg.server, room: cfg.room,
+      ...(includeKey && cfg.sessionKey ? { session_key: cfg.sessionKey } : {}) }).toString();
+    return url.href;
+  },
+  import(value) {
+    const url = new URL(value.trim());
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || value.length > 8192) throw new Error("Invalid invitation URL");
+    importNetworkInvite(url.hash, true);
+    updateNetworkConfigUI();
+  },
+};
 networkUseThisHostBtn?.addEventListener("click", () => {
   if (networkServerInput) networkServerInput.value = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
   saveNetworkConfigFromUI();
@@ -2052,6 +2058,16 @@ function sanitizeNetworkMac(value) {
   return /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(clean) && !(parseInt(clean.slice(0, 2), 16) & 1) && clean !== "00:00:00:00:00:00" ? clean : randomPspMac();
 }
 
+function readNetworkSessionKey() {
+  try { return sessionStorage.getItem("ppsspp-relay-session-key") || networkSessionKey; }
+  catch (_) { return networkSessionKey; }
+}
+
+function storeNetworkSessionKey(value) {
+  networkSessionKey = value;
+  try { sessionStorage.setItem("ppsspp-relay-session-key", value); } catch (_) {}
+}
+
 function loadNetworkConfig() {
   let mac = preferences.getItem(NETWORK_MAC_KEY);
   if (!mac || !/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac) || parseInt(mac.slice(0, 2), 16) & 1) {
@@ -2067,21 +2083,26 @@ function loadNetworkConfig() {
   if (!server || !server.includes("://")) server = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
   return { enabled: preferences.getItem(NETWORK_ENABLE_KEY) === "1", server,
     room: preferences.getItem("ppsspp-network-room") || "public",
+    sessionKey: readNetworkSessionKey(),
     nick: sanitizeNetworkNick(preferences.getItem(NETWORK_NICK_KEY)), mac: sanitizeNetworkMac(mac) };
 }
 
-function importNetworkInvite() {
-  const invite = new URLSearchParams(location.hash.slice(1));
-  if (!invite.has("relay")) return;
+function importNetworkInvite(hash = location.hash, strict = false) {
+  const invite = new URLSearchParams(hash.slice(1));
+  if (!invite.get("relay")) { if (strict) throw new Error("Invalid multiplayer invitation"); return; }
   try {
     const server = window.PPSSPPAdhoc.endpoint(invite.get("relay")).href;
     const room = invite.get("room") || "public";
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(room)) throw new Error("Invalid invitation room");
+    const sameRelay = preferences.getItem(NETWORK_SERVER_KEY) === server;
+    const sessionKey = invite.has("session_key") ? invite.get("session_key") : sameRelay ? readNetworkSessionKey() : "";
+    if (sessionKey.length > 256) throw new Error("Invalid session key");
+    storeNetworkSessionKey(sessionKey);
     preferences.setItem(NETWORK_SERVER_KEY, server);
     preferences.setItem("ppsspp-network-room", room);
     preferences.setItem(NETWORK_ENABLE_KEY, "1");
     history.replaceState(null, "", location.pathname + location.search);
-  } catch (e) { log("Network invitation: " + e.message, "warn"); }
+  } catch (e) { if (strict) throw e; log("Network invitation: " + e.message, "warn"); }
 }
 
 function testWebSocket(url, timeoutMs = 5000) {
@@ -2108,7 +2129,7 @@ function testWebSocket(url, timeoutMs = 5000) {
         if (done) return;
         done = true;
         clearTimeout(timer);
-        reject(new Error("connection failed"));
+        reject(new Error("connection failed; check relay URL, session key and TLS certificate"));
       };
     } catch(e) {
       clearTimeout(timer);
@@ -2122,7 +2143,7 @@ async function testNetworkRelay() {
     const cfg = saveNetworkConfigFromUI();
     const base = window.PPSSPPAdhoc.endpoint(cfg.server);
     const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join("");
-    base.search = new URLSearchParams({ v: "1", token, room: cfg.room });
+    base.search = new URLSearchParams({ v: "1", token, room: cfg.room, ...(cfg.sessionKey ? { session_key: cfg.sessionKey } : {}) });
     await testWebSocket(base.href);
     updateNetworkConfigUI(cfg, "Relay WebSocket reachable. Game discovery and traffic appear below when the core enters multiplayer.");
   } catch (e) { if (networkActivityEl) networkActivityEl.textContent = "Relay test failed: " + e.message; }
@@ -2132,8 +2153,11 @@ function saveNetworkConfigFromUI() {
   const cfg = { enabled: !!networkEnableToggle?.checked,
     server: window.PPSSPPAdhoc.endpoint(networkServerInput?.value).href.replace(/\/$/, ""),
     room: byId("networkRoomInput")?.value.trim() || "public",
+    sessionKey: byId("networkSessionKeyInput")?.value || "",
     nick: sanitizeNetworkNick(networkNickInput?.value), mac: sanitizeNetworkMac(networkMacInput?.value) };
   if (!/^[A-Za-z0-9_-]{1,32}$/.test(cfg.room)) throw new Error("Room: use 1–32 letters, numbers, _ or -");
+  if (cfg.sessionKey.length > 256) throw new Error("Session key too long");
+  storeNetworkSessionKey(cfg.sessionKey);
   preferences.setItem(NETWORK_ENABLE_KEY, cfg.enabled ? "1" : "0");
   preferences.setItem(NETWORK_SERVER_KEY, cfg.server);
   preferences.setItem(NETWORK_NICK_KEY, cfg.nick);
@@ -2150,6 +2174,7 @@ function updateNetworkConfigUI(cfg = loadNetworkConfig(), message = "") {
   if (networkNickInput) networkNickInput.value = cfg.nick;
   if (networkMacInput) networkMacInput.value = cfg.mac;
   if (byId("networkRoomInput")) byId("networkRoomInput").value = cfg.room;
+  if (byId("networkSessionKeyInput")) byId("networkSessionKeyInput").value = cfg.sessionKey || "";
   if (netServerEl) netServerEl.textContent = cfg.server;
   if (netPortEl) netPortEl.textContent = "PDP / PTP via relay v1";
   if (networkActivityEl && message) networkActivityEl.textContent = message;
@@ -4398,7 +4423,7 @@ async function exportDiagnosticReport() {
     audio: { ...audioDebug }, configs,
     logs: [...logLines, ...pendingLines].slice(-500).map(line => line.raw
       .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
-      .replace(/([?&#](?:access_token|id_token|code|state)=)[^&\s]+/gi, "$1[redacted]")),
+      .replace(/([?&#](?:access_token|id_token|session_key|code|state)=)[^&\s]+/gi, "$1[redacted]")),
   };
   triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "ppsspp-diagnostics.json");
 }
