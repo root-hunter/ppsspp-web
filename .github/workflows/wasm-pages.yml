@@ -162,7 +162,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=relay
 
   deploy-relay:
-    name: Deploy relay on Oracle
+    name: Deploy relay on Server
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm'
     needs: build-relay
     runs-on: self-hosted
