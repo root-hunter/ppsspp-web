@@ -1,0 +1,44 @@
+services:
+  relay:
+    image: ${RELAY_IMAGE:?Set RELAY_IMAGE to the published GHCR image digest}
+    environment:
+      RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
+      RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?Set the public relay DNS hostname}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the ACME contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      relay:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  caddy-data:
+  caddy-config:

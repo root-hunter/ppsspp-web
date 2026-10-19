@@ -1,4 +1,4 @@
-name: Build WASM release and publish Pages
+name: Build WASM, publish Pages and deploy relay
 
 on:
   push:
@@ -95,3 +95,106 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+
+  build-relay:
+    name: Build and publish relay image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Test relay
+        # The existing suite also covers LAN QR onboarding.
+        # Python matches the production image.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qrencode
+          python3 -m unittest discover -s server/tests -v
+
+      - name: Image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}/relay" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push relay
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/relay.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=relay
+          cache-to: type=gha,mode=max,scope=relay
+
+  deploy-relay:
+    name: Deploy relay on Oracle
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm'
+    needs: build-relay
+    runs-on: self-hosted
+    timeout-minutes: 15
+    concurrency:
+      group: oracle-relay-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: oracle-relay
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/relay-docker-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/relay
+
+      - name: Log in to GHCR for pull
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and start relay with Caddy
+        shell: bash
+        env:
+          RELAY_IMAGE: ${{ needs.build-relay.outputs.image }}@${{ needs.build-relay.outputs.digest }}
+          RELAY_DOMAIN: ${{ secrets.RELAY_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+        run: bash deploy/relay/deploy.sh

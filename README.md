@@ -98,6 +98,11 @@ compiled static bundle from the Python server. The compose file mounts
 make server-docker-up-local
 ```
 
+For the public relay on Oracle with automatic HTTPS on port 443, see
+[Oracle relay deployment](docs/relay-deployment.md). GitHub Actions builds and
+pushes the multi-platform relay image to GHCR; the Oracle `self-hosted` runner
+only pulls images and starts the relay and Caddy containers.
+
 ## GitHub Pages
 
 The workflow builds the exact `deps/ppsspp-wasm` revision pinned by this
