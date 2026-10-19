@@ -4,8 +4,11 @@ Run: python3 -m unittest discover -s server/tests -v
 import base64
 import os
 import socket
+import ssl
 import struct
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -13,12 +16,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import relay
 from relay import AdhocWebSocketHandler, AdhocLobby, ThreadingAdhocWebSocketServer
+from serve import WasmThreadingHandler, WasmThreadingServer
+from functools import partial
 
 
 class Client:
-    def __init__(self, address, path='', token=None, mac=None, room='public'):
+    def __init__(self, address, path='', token=None, mac=None, room='public', tls_context=None):
         self.token = token or os.urandom(16).hex()
         self.socket = socket.create_connection(address, timeout=2)
+        if tls_context:
+            try:
+                self.socket = tls_context.wrap_socket(self.socket, server_hostname='localhost')
+            except OSError as exc:
+                self.socket.close()
+                raise ConnectionError('TLS connection rejected') from exc
         self.reader = self.socket.makefile('rb')
         key = base64.b64encode(os.urandom(16)).decode()
         query = f'v=1&token={self.token}&room={room}'
@@ -104,6 +115,7 @@ class RelayTest(unittest.TestCase):
         self.thread.join(2)
 
     def client(self, *args, **kwargs):
+        kwargs['tls_context'] = getattr(self, 'tls_context', None)
         c = Client(self.address, *args, **kwargs)
         self.clients.append(c)
         return c
@@ -125,7 +137,8 @@ class RelayTest(unittest.TestCase):
         path = f'/{mode}'
         c = Client.__new__(Client)
         # Keep the regular upgrade constructor and add data parameters to room.
-        c.__init__(self.address, path, owner.token, owner.mac, f'public&port={port}{extra}')
+        c.__init__(self.address, path, owner.token, owner.mac, f'public&port={port}{extra}',
+                   tls_context=getattr(self, 'tls_context', None))
         self.clients.append(c)
         return c
 
@@ -307,6 +320,95 @@ class RelayTest(unittest.TestCase):
         data = self.data(a, 'udp')
         self.server.shutdown(); self.server.server_close()
         self.assertIsNone(a.recv()); self.assertIsNone(data.recv())
+
+
+class HTTPSRelayTest(RelayTest):
+    """Run the wire suite through the same TLS/HTTP upgrade as Docker."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cert_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.cert_dir.cleanup)
+        cert = str(Path(cls.cert_dir.name) / 'cert.pem')
+        key = str(Path(cls.cert_dir.name) / 'key.pem')
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                        '-keyout', key, '-out', cert, '-days', '1',
+                        '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        cls.server_context.load_cert_chain(cert, key)
+        cls.tls_context = ssl.create_default_context(cafile=cert)
+
+    def setUp(self):
+        AdhocWebSocketHandler.lobby = AdhocLobby()
+        root = str(Path(__file__).resolve().parents[2])
+        handler = partial(WasmThreadingHandler, web_root=root, wasm_root=root)
+        self.server = WasmThreadingServer(('127.0.0.1', 0), handler)
+        self.server.adhoc_enabled = True
+        self.server.socket = self.server_context.wrap_socket(
+            self.server.socket, server_side=True, do_handshake_on_connect=False)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.address = self.server.server_address
+        self.clients = []
+
+
+class FrameReaderTest(unittest.TestCase):
+    def setUp(self):
+        self.incoming, self.outgoing = socket.socketpair()
+        self.incoming.setblocking(False)
+        self.reader = self.incoming.makefile('rb', buffering=0)
+        self.handler = object.__new__(AdhocWebSocketHandler)
+        self.handler.request = self.incoming
+        self.handler.reader = self.reader
+        self.handler.alive = True
+        self.handler.fragments = bytearray()
+        self.handler.fragmenting = False
+
+    def tearDown(self):
+        self.reader.close()
+        self.incoming.close()
+        self.outgoing.close()
+
+    def test_partial_frame_and_temporary_no_data_preserve_payload(self):
+        self.assertIsNone(self.reader.read(1))
+        payload = b'LAN payload' * 30
+        mask = b'abcd'
+        frame = b'\x82\xfe' + struct.pack('>H', len(payload)) + mask
+        frame += bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+
+        def deliver():
+            # Split the header, extended length, mask and payload over reads.
+            for start, end in ((0, 1), (1, 3), (3, 6), (6, 11), (11, len(frame))):
+                time.sleep(.01)
+                self.outgoing.sendall(frame[start:end])
+
+        sender = threading.Thread(target=deliver)
+        sender.start()
+        try:
+            self.assertEqual(self.handler._read_frame(), payload)
+        finally:
+            sender.join(2)
+
+    def test_eof_mid_frame_is_protocol_error(self):
+        self.outgoing.sendall(b'\x82')
+        self.outgoing.shutdown(socket.SHUT_WR)
+        with self.assertRaisesRegex(relay.ProtocolError, 'truncated frame'):
+            self.handler._read_frame()
+
+    def test_no_data_respects_timeout(self):
+        old = relay.TTL
+        relay.TTL = .03
+        try:
+            with self.assertRaisesRegex(TimeoutError, 'frame read timed out'):
+                self.handler._read_frame()
+        finally:
+            relay.TTL = old
+
+    def test_stopped_connection_does_not_wait_for_frame(self):
+        self.handler.alive = False
+        with self.assertRaisesRegex(relay.ProtocolError, 'connection stopped'):
+            self.handler._read_frame()
 
 
 if __name__ == '__main__':

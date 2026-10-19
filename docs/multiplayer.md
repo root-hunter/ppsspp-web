@@ -37,7 +37,9 @@ Open `https://your-host:8081`, enable networking in Network, leave the discovere
 
 The room adds isolation around the game's actual PRO game ID and eight-byte PSP group; it does not force or rewrite game-created groups. Enter the game's native multiplayer menus to create and discover sessions. Live diagnostics reflect control registration, actual game/group packets, peers, PDP counts, PTP socket states, queue bytes/depth, measured heartbeat RTT and errors. The Test button checks WebSocket reachability only. Disconnect closes real core transports. Reconnect queues a request on the core friend-finder thread to close the old control connection, report disconnection and log in again. Rejoin through the game's multiplayer menu. Mid-match resumption is not implemented. Settings changes require restarting PPSSPP.
 
-The container generates a self-signed certificate for local testing in its TLS volume. For internet deployment use a trusted certificate or terminate TLS at a reverse proxy. HTTP/WS is permitted for local development; HTTPS pages require WSS. Example reverse proxy:
+When connecting from another LAN device, use the server machine's LAN address in the relay URL, for example `wss://192.168.10.172:8081/adhoc` (replace the example IP with the server's current address). `localhost` on the other device refers to that device, and Docker bridge addresses such as `172.30.0.1` in the logs are not the address to configure. Both players must use the same relay and room. First open `https://<server-LAN-IP>:8081/healthz` on each device to check reachability and resolve any certificate warning for your local server. A successful health check verifies HTTP availability; the Network Test button separately verifies the WebSocket upgrade.
+
+The container generates a self-signed certificate for local testing in its TLS volume. Local-network permission does not establish certificate trust. For internet deployment use a trusted certificate or terminate TLS at a reverse proxy. HTTP/WS is permitted for local development; HTTPS pages require WSS. Example reverse proxy:
 
 ```nginx
 location / {

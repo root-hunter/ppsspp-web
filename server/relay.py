@@ -10,6 +10,7 @@ import os
 import queue
 import re
 import secrets
+import select
 import socket
 import socketserver
 import ssl
@@ -329,10 +330,26 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                               f'Sec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: binary\r\n\r\n').encode('ascii'))
 
     def _read_exact(self, length):
-        data = self.reader.read(length)
-        if len(data) != length:
-            raise ProtocolError('truncated frame')
-        return data
+        # The HTTP upgrade reuses its reader. A read may be short, or return
+        # None on temporary EAGAIN; neither means that the frame has ended.
+        data = bytearray()
+        deadline = time.monotonic() + TTL
+        while len(data) < length:
+            if not self.alive:
+                raise ProtocolError('connection stopped')
+            chunk = self.reader.read(length - len(data))
+            if chunk is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('frame read timed out')
+                # Bound the wait so shutdown is observed even without data.
+                select.select([self.request], [], [], min(.1, remaining))
+                continue
+            if not chunk:
+                raise ProtocolError('truncated frame')
+            data.extend(chunk)
+            deadline = time.monotonic() + TTL
+        return bytes(data)
 
     def _read_frame(self):
         header = self._read_exact(2)
