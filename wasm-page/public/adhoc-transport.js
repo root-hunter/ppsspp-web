@@ -138,7 +138,7 @@
           const id = new DataView(data.buffer, data.byteOffset).getUint32(4);
           if (data[3] === 1) {
             const n = data[8]; if (n < 7 || n > 15 || data.length !== n + 11) throw new Error('Invalid PTP open');
-            if (sock.pending.length >= sock.__backlog) { safeSend(sock, sock.__relay.ws, stream(3, id)); return; }
+            if (sock.__closed || sock.pending.length >= sock.__backlog) { safeSend(sock, sock.__relay.ws, stream(3, id)); return; }
             const child = SOCKFS.createSocket(sock.family, sock.type, sock.protocol);
             child.__ppssppAdhoc = true;
             child.saddr = localIP; child.sport = sock.sport;
@@ -280,23 +280,36 @@
     };
     ops.close = function(sock) {
       if (!cfg.enabled || !sock.__ppssppAdhoc) return original.close(sock);
+      if (sock.server && sock.__accepted && sock.__accepted.size > 0 && !sock.__forceClose && !sock.__listenClosed) {
+        sock.__closed = true; sock.__listenClosed = true;
+        for (const c of [...sock.pending]) {
+          c.__closed = true;
+          try { safeSend(sock, sock.__relay?.ws, stream(3, c.__connId)); } catch (_) {}
+          sock.__accepted.delete(c.__connId); sockets.delete(c); SOCKFS.emit('close', c.stream.fd);
+        }
+        sock.pending = [];
+        if (sock.__accepted.size > 0) { publish(); return 0; }
+      }
       sock.__closed = true;
       if (sock.__parent) {
         try { safeSend(sock, sock.__parent.__relay?.ws, stream(3, sock.__connId)); } catch (_) {}
         sock.__parent.__accepted.delete(sock.__connId);
+        const parent = sock.__parent;
+        if (parent.__listenClosed && parent.__accepted.size === 0) { parent.__relay?.ws?.close(); sockets.delete(parent); }
       }
       sock.__relay?.ws?.close();
       for (const child of sock.__accepted?.values() || []) { child.__closed = true; SOCKFS.emit('close', child.stream.fd); }
       sock.__accepted?.clear(); sock.recv_queue.length = 0; sockets.delete(sock);
       if (sock === control) {
         registered = false; control = null; stats.state = 'disconnected'; stats.game = ''; stats.group = ''; peers.clear();
+        for (const s of sockets) s.__forceClose = true;
         for (const s of [...sockets]) ops.close(s);
       }
       publish(); return 0;
     };
     const api = {
       snapshot() { publish(); return { ...stats }; },
-      disconnect() { for (const s of [...sockets]) ops.close(s); },
+      disconnect() { for (const s of sockets) s.__forceClose = true; for (const s of [...sockets]) ops.close(s); },
       destroy() { api.disconnect(); globalThis.removeEventListener?.('pagehide', api.disconnect); clearInterval(timer); for (const [name, fn] of Object.entries(original)) ops[name] = fn; delete ops.__ppssppRelayInstalled; },
       // Reconnect follows the HLE lifecycle: leave multiplayer and re-enter it.
     };
