@@ -36,3 +36,43 @@ The user reported severe remaining lag after the earlier adaptive-skipping chang
 The follow-up experiment ended a host slice when a gameplay PDP receive found no data, while retaining EAGAIN and the existing HLE wait scheduling. With skipping disabled it measured approximately 48–52 VPS/drawn FPS over ten seconds; prompt scheduling after a yield measured approximately 47–59 VPS/drawn FPS. A live hardware-skinning trial made performance worse (about 20–24 FPS) and was reverted. These experiments motivated the compiled `YieldAdhocReceiveToBrowser` path. It runs only on the Emscripten main runtime thread while the CPU is running; it does not synthesize a vblank or modify game memory. Native lag-sync sleeps and frame skipping are disabled in the default web multiplayer profile.
 
 An actual post-match result/rematch menu was captured (`artifacts/multiplayer/tekken-completed-match.png`, 1 win / 0 losses on player 1). This records a completed local match, not a completed rematch or WAN validation.
+
+## MHFU listener lifetime regression — 2026-10-31
+
+[Issue #4](https://github.com/root-hunter/ppsspp-web/issues/4) reports MHFU
+(ULUS10391) dropping guests when the host closes its PTP listening socket after
+accepting a connection. The browser transport closed the shared `/tcp-listen`
+WebSocket and all accepted streams along with that listening fd.
+
+Closing a listener now rejects pending and subsequent connection notices while
+keeping accepted streams alive. The last local or remote stream close releases
+the shared WebSocket. Explicit disconnect, destroy, control close and control
+loss still tear down the connection. Unaccepted streams release their FS
+resources; deferred listener events do not target a listening fd that the core
+may already have reused. This uses relay protocol 1 without server changes.
+
+Validation:
+
+- `npm --prefix wasm-page test`: 32 runtime and 22 transport tests pass. Running
+  the expanded transport suite against the pre-fix transport produces seven
+  failures, including loss of accepted streams and unaccepted socket cleanup.
+- `python3 -m unittest discover -s server/tests -v`: all 45 tests pass.
+- `npm --prefix wasm-page run build`: passes; existing CommonJS warnings for
+  `qrcode` and `jsqr` remain.
+- `scripts/test-multiplayer-browser.mjs`: two isolated headless Chromium contexts,
+  the existing instrumented WASM core and a local HTTPS relay pass the actual
+  socket sequence `listen -> connect -> accept -> close(listener) -> send/receive
+  both ways -> close(accepted)`. The listener's relay stays open during traffic
+  and closes after the accepted stream closes. Both transports report zero
+  errors before deliberate stream teardown. PDP, lobby, frontend configuration
+  and homebrew boot checks also pass. The harness requests a new window for
+  each isolated context, including headless mode, as required by the installed
+  Chromium. See `artifacts/multiplayer/issue-4-browser-protocol.json` for the run.
+  Snapshots are taken after intentional peer teardown and can include the
+  existing disconnect/error counters from that teardown.
+
+This validates the reported transport lifecycle failure, not MHFU gameplay.
+A quest with two MHFU clients, Firefox and a remote relay remains to be checked.
+The separately reported slow-host timeout before any connection is accepted is
+outside this fix. Publish the rebuilt web shell to deliver the change; the
+emulator core and relay do not need rebuilding for this JavaScript correction.
