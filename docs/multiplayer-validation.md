@@ -76,3 +76,20 @@ A quest with two MHFU clients, Firefox and a remote relay remains to be checked.
 The separately reported slow-host timeout before any connection is accepted is
 outside this fix. Publish the rebuilt web shell to deliver the change; the
 emulator core and relay do not need rebuilding for this JavaScript correction.
+
+### MHFU quest start on a remote relay (community test) — 2026-10-31
+
+**Result: with 990e875, MHFU (ULUS10391) quest start works.** Two physical clients connected through a remote relay, started a quest and joined it, with no noticeable lag. Before the listener fix (#4), starting a quest dropped every player back into solo quest while still being in the same gathering hall instance.
+
+Setup: Firefox 158 on Windows, self-hosted relay on an Oracle VM behind Caddy with trusted TLS (relay protocol 1, Docker). The failing runs used two players on separate internet connections. The run with 990e875 used one tester's desktop and laptop, both connecting to the remote relay.
+
+Before the fix:
+- Starting a quest dropped everyone back into a solo quest instance, while the gathering hall, lobby and chat worked.
+- The relay logged `{"event": "connection_closed", "mode": "tcp-connect", "reason": "[Errno 32] Broken pipe"}`, with no "no listener or accept backlog full" errors.
+- Browser WebSocket captures showed the host's `/tcp-listen` (port 30001, backlog 3) receiving one PT1 connection notice and then closing with code 1005, while the guest's `/tcp-connect` received no frames.
+- A local patch with the same behavior (keep the shared listener WebSocket open while accepted streams exist) also let a quest start and run.
+
+After the fix (990e875):
+- Quest started, and host and guest connected and played, with no noticeable lag.
+
+Known limitation: with a slow host PC, "preparing the quest" lasted about a minute and the guest dropped within seconds. The listener closed with 0 accepted connections, so this is the timing case outside the listener fix. Player with the fastest PC should be the host.
