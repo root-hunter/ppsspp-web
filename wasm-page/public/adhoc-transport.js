@@ -52,7 +52,8 @@
     const fail = (sock, message, errno = 53) => {
       sock.error = errno; stats.errors++; stats.lastError = message;
       if (sock === control) { registered = false; stats.state = 'disconnected'; }
-      SOCKFS.emit('error', [sock.stream.fd, errno, message]); publish();
+      if (!(sock.server && sock.__closed)) SOCKFS.emit('error', [sock.stream.fd, errno, message]);
+      publish();
     };
     function publish() {
       stats.peers = [...peers.values()];
@@ -94,6 +95,12 @@
       if (ws.bufferedAmount + data.byteLength > LIMIT) throw new FS.ErrnoError(6);
       try { ws.send(data); } catch (e) { fail(sock, e.message); throw new FS.ErrnoError(53); }
     }
+    function releaseListener(sock) {
+      if (sock.__closed && sock.__accepted.size === 0) {
+        sockets.delete(sock);
+        sock.__relay?.ws?.close();
+      }
+    }
     function open(sock, path, params, message, opened = () => {}) {
       const ws = new WebSocket(url(path, params), 'binary');
       ws.binaryType = 'arraybuffer';
@@ -114,11 +121,15 @@
           for (const other of sockets) if (other !== control) other.__relay?.ws?.close();
         }
         if (sock.__accepted) {
+          for (const child of [...sock.pending]) FS.close(child.stream);
           for (const s of sock.__accepted.values()) { s.__closed = true; SOCKFS.emit('close', s.stream.fd); }
           sock.__accepted.clear();
+          if (sock.__closed) sockets.delete(sock);
         }
         if (!sock.__closed) fail(sock, 'Relay disconnected');
-        SOCKFS.emit('close', sock.stream.fd); publish();
+        // A retained listener's fd may already belong to another socket.
+        if (!(sock.server && sock.__closed)) SOCKFS.emit('close', sock.stream.fd);
+        publish();
       };
       return ws;
     }
@@ -138,7 +149,7 @@
           const id = new DataView(data.buffer, data.byteOffset).getUint32(4);
           if (data[3] === 1) {
             const n = data[8]; if (n < 7 || n > 15 || data.length !== n + 11) throw new Error('Invalid PTP open');
-            if (sock.pending.length >= sock.__backlog) { safeSend(sock, sock.__relay.ws, stream(3, id)); return; }
+            if (sock.__closed || sock.pending.length >= sock.__backlog) { safeSend(sock, sock.__relay.ws, stream(3, id)); return; }
             const child = SOCKFS.createSocket(sock.family, sock.type, sock.protocol);
             child.__ppssppAdhoc = true;
             child.saddr = localIP; child.sport = sock.sport;
@@ -153,7 +164,14 @@
             if (child) { receive(child, data.subarray(8), child.daddr, child.dport); stats.ptpReceived += data.length - 8; }
           } else if (data[3] === 3) {
             const child = sock.__accepted.get(id);
-            if (child) { child.__closed = true; sock.pending = sock.pending.filter(s => s !== child); SOCKFS.emit('close', child.stream.fd); sock.__accepted.delete(id); }
+            if (child) {
+              child.__closed = true;
+              const pending = sock.pending.includes(child);
+              sock.pending = sock.pending.filter(s => s !== child);
+              SOCKFS.emit('close', child.stream.fd); sock.__accepted.delete(id);
+              if (pending) FS.close(child.stream);
+              releaseListener(sock);
+            }
           } else throw new Error('Invalid PTP operation');
         });
       } else if (sock.daddr) {
@@ -278,25 +296,38 @@
       // Delegate partial stream reads and MSG_PEEK to Emscripten's tested queue code.
       return original.recvmsg(sock, length, flags);
     };
-    ops.close = function(sock) {
+    ops.close = function(sock, force = false) {
       if (!cfg.enabled || !sock.__ppssppAdhoc) return original.close(sock);
       sock.__closed = true;
+      // Accepted PTP streams share the listener's WebSocket, but own their
+      // lifetime. Closing the listening fd only rejects unaccepted connections.
+      if (sock.server) for (const child of [...sock.pending]) FS.close(child.stream);
+      if (sock.server && !force) {
+        sock.pending.length = 0;
+        sock.recv_queue.length = 0;
+        if (sock.__accepted.size) { publish(); return 0; }
+      }
       if (sock.__parent) {
-        try { safeSend(sock, sock.__parent.__relay?.ws, stream(3, sock.__connId)); } catch (_) {}
-        sock.__parent.__accepted.delete(sock.__connId);
+        const parent = sock.__parent;
+        if (parent.__accepted.get(sock.__connId) === sock) {
+          try { safeSend(sock, parent.__relay?.ws, stream(3, sock.__connId)); } catch (_) {}
+          parent.__accepted.delete(sock.__connId);
+        }
+        parent.pending = parent.pending.filter(s => s !== sock);
+        releaseListener(parent);
       }
       sock.__relay?.ws?.close();
       for (const child of sock.__accepted?.values() || []) { child.__closed = true; SOCKFS.emit('close', child.stream.fd); }
-      sock.__accepted?.clear(); sock.recv_queue.length = 0; sockets.delete(sock);
+      sock.__accepted?.clear(); sock.pending.length = 0; sock.recv_queue.length = 0; sockets.delete(sock);
       if (sock === control) {
         registered = false; control = null; stats.state = 'disconnected'; stats.game = ''; stats.group = ''; peers.clear();
-        for (const s of [...sockets]) ops.close(s);
+        for (const s of [...sockets]) ops.close(s, true);
       }
       publish(); return 0;
     };
     const api = {
       snapshot() { publish(); return { ...stats }; },
-      disconnect() { for (const s of [...sockets]) ops.close(s); },
+      disconnect() { for (const s of [...sockets]) ops.close(s, true); },
       destroy() { api.disconnect(); globalThis.removeEventListener?.('pagehide', api.disconnect); clearInterval(timer); for (const [name, fn] of Object.entries(original)) ops[name] = fn; delete ops.__ppssppRelayInstalled; },
       // Reconnect follows the HLE lifecycle: leave multiplayer and re-enter it.
     };

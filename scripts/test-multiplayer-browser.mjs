@@ -56,7 +56,7 @@ try {
   const sessions = [];
   for (const mac of ['02:00:00:00:00:01', '02:00:00:00:00:02']) {
     const { browserContextId } = await command('Target.createBrowserContext'); contexts.push(browserContextId);
-    const { targetId } = await command('Target.createTarget', { url: 'about:blank', browserContextId, newWindow: !headless });
+    const { targetId } = await command('Target.createTarget', { url: 'about:blank', browserContextId, newWindow: true });
     const { sessionId } = await command('Target.attachToTarget', { targetId, flatten: true });
     sessions.push(sessionId); await command('Runtime.enable', {}, sessionId);
     await command('Page.enable', {}, sessionId);
@@ -114,10 +114,16 @@ try {
   await waitFor(() => evaluate(b, '(probe(9,listener,0,0,1)&1)!==0'), 'PTP accept');
   await evaluate(b, 'window.accepted=probe(4,listener,0,0,0)');
   await waitFor(() => evaluate(a, '(probe(9,ptp,0,0,4)&4)!==0'), 'PTP connect');
+  // MHFU closes the listening fd immediately after accept. The accepted
+  // connection must keep carrying traffic over the shared relay WebSocket.
+  await evaluate(b, 'window.listenerRelay=Module.SOCKFS.getSocket(listener).__relay.ws; if(probe(8,listener,0,0,0)!==0)throw Error("PTP listener close")');
+  assert.equal(await evaluate(b, 'listenerRelay.readyState'), 1);
   await send(a, 'ptp', 'stream-a'); await receive(b, 'accepted', 'stream-a');
   await send(b, 'accepted', 'stream-b'); await receive(a, 'ptp', 'stream-b');
+  for (const s of sessions) assert.equal(await evaluate(s, 'transport.snapshot().errors'), 0);
   await evaluate(b, 'probe(8,accepted,0,0,0)');
   await waitFor(() => evaluate(a, '(probe(9,ptp,0,0,16)&16)!==0'), 'PTP disconnect');
+  await waitFor(() => evaluate(b, 'listenerRelay.readyState===WebSocket.CLOSED'), 'last accepted PTP stream releases listener relay');
   for (const s of sessions) await waitFor(() => evaluate(s, "transport.snapshot().rttMs !== null"), 'heartbeat RTT measurement');
   const snapshots = await Promise.all(sessions.map(s => evaluate(s, 'transport.snapshot()')));
   for (const s of sessions) await evaluate(s, 'transport.disconnect()');
@@ -161,7 +167,7 @@ try {
   }
   assert.equal(events.length, 0, JSON.stringify(events));
   const report = { passed: true, type: 'protocol integration; not Tekken gameplay', realWasm: true, twoIsolatedContexts: true,
-    origin, build, headless, frontend, pdpEchoSamples: rtts.length, cdpInclusiveRttMs: { min: Math.min(...rtts), mean: rtts.reduce((a,b)=>a+b,0)/rtts.length, max: Math.max(...rtts) }, snapshots };
+    origin, build, headless, frontend, ptpSurvivesListenerClose: true, ptpTrafficErrorsBeforeClose: 0, pdpEchoSamples: rtts.length, cdpInclusiveRttMs: { min: Math.min(...rtts), mean: rtts.reduce((a,b)=>a+b,0)/rtts.length, max: Math.max(...rtts) }, snapshots };
   await writeFile(process.env.PPSSPP_TEST_REPORT || '/tmp/ppsspp-multiplayer-browser.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } finally {
