@@ -298,16 +298,6 @@
     };
     ops.close = function(sock, force = false) {
       if (!cfg.enabled || !sock.__ppssppAdhoc) return original.close(sock);
-      if (sock.server && sock.__accepted && sock.__accepted.size > 0 && !sock.__forceClose && !sock.__listenClosed) {
-        sock.__closed = true; sock.__listenClosed = true;
-        for (const c of [...sock.pending]) {
-          c.__closed = true;
-          try { safeSend(sock, sock.__relay?.ws, stream(3, c.__connId)); } catch (_) {}
-          sock.__accepted.delete(c.__connId); sockets.delete(c); SOCKFS.emit('close', c.stream.fd);
-        }
-        sock.pending = [];
-        if (sock.__accepted.size > 0) { publish(); return 0; }
-      }
       sock.__closed = true;
       // Accepted PTP streams share the listener's WebSocket, but own their
       // lifetime. Closing the listening fd only rejects unaccepted connections.
