@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-demo-experience-v2';
+const RUNTIME_ASSET_VERSION = '2026-11-01-isolation-recovery-v3';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

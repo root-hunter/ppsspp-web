@@ -369,7 +369,9 @@ test('caching a large WASM response does not delay streaming it to the browser',
 test('blocked session storage cannot cause an endless isolation reload loop', async () => {
   const statuses = [];
   const ctx = load(['reloadForCrossOriginIsolation'], {
-    window: { crossOriginIsolated: false }, sessionStorage: { getItem() { throw new Error('denied'); } },
+    window: { crossOriginIsolated: false }, document: {}, coiReloadPending: false,
+    showIsolationFailure: value => statuses.push(value),
+    sessionStorage: { getItem() { throw new Error('denied'); } },
     COI_RELOAD_KEY: 'coi', setStatus: value => statuses.push(value), hideLoading() {},
     location: { reload() { throw new Error('must not reload'); } },
   });
@@ -830,4 +832,94 @@ test('transfer notifications preserve browsing focus and recover a Cancel button
   assert.equal(byId('demoOpenBtn').hidden, false);
   assert(steps.every(step => step.dataset.state === 'done'));
   assert.match(byId('demoAnnouncement').textContent, /Ready to play/);
+});
+
+function isolationContext(overrides = {}) {
+  const state = {messages: [], reloads: 0, count: '0', registrations: 0};
+  const ctx = load(['reloadForCrossOriginIsolation'], {
+    window: {crossOriginIsolated: false, isSecureContext: true}, document: {},
+    coiReloadPending: false, COI_RELOAD_KEY: 'coi',
+    sessionStorage: {getItem: () => state.count, setItem: (_, count) => {state.count = count;}, removeItem: () => {state.count = null;}},
+    navigator: {serviceWorker: {register: async () => {state.registrations++;}}},
+    waitForServiceWorkerControl: async () => {},
+    showIsolationFailure: message => state.messages.push(message), byId: () => null,
+    URL, setStatus() {}, showLoading() {}, log() {}, location: {href: "https://example.test/app/", replace: () => {state.reloads++;}},
+    ...overrides,
+  });
+  return {ctx, state};
+}
+test('concurrent isolation requests wait for control and spend only one reload attempt', async () => {
+  let release;
+  const claimed = new Promise(resolve => {release = resolve;});
+  const {ctx, state} = isolationContext({waitForServiceWorkerControl: () => claimed});
+  const first = ctx.reloadForCrossOriginIsolation('launch');
+  await ctx.reloadForCrossOriginIsolation('controllerchange');
+  assert.equal(state.registrations, 1); assert.equal(state.reloads, 0); assert.equal(state.count, '0');
+  release(); await first;
+  assert.equal(state.reloads, 1); assert.equal(state.count, '1');
+  await ctx.reloadForCrossOriginIsolation('another event');
+  assert.equal(state.reloads, 1);
+});
+test('failed service worker registration reports the cause without reloading or consuming attempts', async () => {
+  const {ctx, state} = isolationContext({navigator: {serviceWorker: {register: async () => {throw new Error('site worker blocked');}}}});
+  await ctx.reloadForCrossOriginIsolation('launch');
+  assert.equal(state.reloads, 0); assert.equal(state.count, '0');
+  assert.match(state.messages[0], /site worker blocked/);
+  assert.equal(ctx.coiReloadPending, false);
+});
+test('unavailable isolation identifies insecure, embedded, policy-blocked and exhausted contexts', async () => {
+  for (const [overrides, expected] of [
+    [{window: {isSecureContext: false}}, /HTTPS/],
+    [{window: {top: {}, self: {}}}, /embedded/],
+    [{document: {permissionsPolicy: {allowsFeature: () => false}}}, /Permissions-Policy/],
+    [{sessionStorage: {getItem: () => '3'}}, /Repair web runtime/],
+  ]) {
+    const {ctx, state} = isolationContext(overrides);
+    await ctx.reloadForCrossOriginIsolation('launch');
+    assert.match(state.messages[0], expected); assert.equal(state.registrations, 0); assert.equal(state.reloads, 0);
+  }
+});
+test('a healthy isolated page clears the old retry count', async () => {
+  const {ctx, state} = isolationContext({window: {crossOriginIsolated: true}});
+  assert.equal(await ctx.reloadForCrossOriginIsolation('startup'), true);
+  assert.equal(state.count, null); assert.equal(state.registrations, 0);
+});
+test('service worker control wait observes claim and cleans up after timeout', async () => {
+  const workers = new EventTarget(); workers.controller = null;
+  const ctx = load(['waitForServiceWorkerControl'], {navigator: {serviceWorker: workers}, setTimeout, clearTimeout});
+  const claimed = ctx.waitForServiceWorkerControl(100);
+  workers.controller = {}; workers.dispatchEvent(new Event('controllerchange'));
+  await claimed;
+  workers.controller = null;
+  await assert.rejects(ctx.waitForServiceWorkerControl(5), /did not take control/);
+});
+test('runtime repair updates only the app worker and resets the retry counter without deleting user storage', async () => {
+  const button = {disabled: false}, actions = [];
+  const ctx = load(['repairWebRuntime'], {
+    byId: () => button, window: {isSecureContext: true}, COI_RELOAD_KEY: 'coi', coiReloadPending: false, URL,
+    navigator: {serviceWorker: {register: async (url, options) => {
+      assert.equal(url, 'sw.js'); assert.equal(options.updateViaCache, 'none');
+      return {update: async () => actions.push('update')};
+    }}},
+    sessionStorage: {removeItem: key => actions.push(key)},
+    waitForServiceWorkerControl: async () => actions.push('control'),
+    location: {href: 'https://example.test/ppsspp-web/?existing=1#room=x', replace: url => actions.push(url)},
+    showIsolationFailure: () => assert.fail('repair should succeed'),
+  });
+  await ctx.repairWebRuntime();
+  assert.deepEqual(actions.slice(0, 3), ['update', 'control', 'coi']);
+  const destination = new URL(actions[3]);
+  assert(destination.searchParams.has('runtime-repair')); assert.equal(destination.searchParams.get('existing'), '1'); assert.equal(destination.hash, '#room=x');
+});
+
+test('isolating document navigations bypass the HTTP cache and its old validation headers', async () => {
+  let options;
+  const ctx = serviceWorker({caches: {open: async () => null}, fetch: async (_, init) => {options = init; return new Response('<html></html>');}});
+  const response = await ctx.networkFirst({mode: 'navigate', headers: new Headers({'If-None-Match': 'old-document', 'If-Modified-Since': 'yesterday', Accept: 'text/html'})});
+  assert.equal(options.cache, 'no-store');
+  assert.equal(options.headers.has('If-None-Match'), false);
+  assert.equal(options.headers.has('If-Modified-Since'), false);
+  assert.equal(options.headers.get('Accept'), 'text/html');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cross-Origin-Opener-Policy'), 'same-origin');
 });

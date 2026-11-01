@@ -93,6 +93,12 @@
 
       <div class="tab-panel active" id="tabLibrary">
         <div id="libraryPanel" class="collection-panel">
+          <section id="isolationRecovery" class="isolation-recovery" role="alert" aria-labelledby="isolationRecoveryTitle" hidden>
+            <h2 id="isolationRecoveryTitle">The emulator needs browser isolation</h2>
+            <p id="isolationRecoveryMessage"></p>
+            <div class="action-row"><button id="isolationRepairBtn" type="button" class="primary">Repair web runtime</button><a id="isolationOpenTab" class="btn" target="_blank" rel="noopener noreferrer">Open in a separate tab</a></div>
+            <p class="field-help">Repair refreshes the web runtime. Your installed games and saved data are kept.</p>
+          </section>
           <div class="collection-heading">
             <div><h1>Games</h1><p id="libraryCount">0 games</p></div>
             <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i> Add game<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx,.zip"></label>

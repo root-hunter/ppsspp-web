@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v22-demo-experience";
+const CACHE_VERSION = "ppsspp-angular-v23-isolation-recovery";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -95,7 +95,15 @@ async function cachedResponse(cache, request) {
 async function networkFirst(request, event) {
   const cache = await openCache();
   try {
-    const response = withCrossOriginIsolation(await fetch(request));
+    const navigation = request.mode === "navigate" || request.destination === "document";
+    const options = { cache: navigation ? "no-store" : "no-cache" };
+    if (navigation) {
+      // A conditional navigation can reuse an earlier non-isolated document.
+      options.headers = new Headers(request.headers);
+      options.headers.delete("If-None-Match");
+      options.headers.delete("If-Modified-Since");
+    }
+    const response = withCrossOriginIsolation(await fetch(request, options));
     if (response.ok && cache) {
       const write = cache.put(request, response.clone()).catch(() => {});
       event?.waitUntil(write);

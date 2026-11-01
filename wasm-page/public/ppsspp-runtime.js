@@ -4680,53 +4680,107 @@ window.addEventListener("error",             (e) => log("JS ERROR: " + (e.messag
 window.addEventListener("unhandledrejection",(e) => log("PROMISE ERROR: " + (e.reason?.stack || e.reason || "unknown"), "err"));
 
 const COI_RELOAD_KEY = "ppsspp-coi-reload-count";
+let coiReloadPending = false;
+
+function showIsolationFailure(message) {
+  log(message, "err");
+  setStatus(message, "err");
+  hideLoading();
+  setStartButtonMode("idle");
+  const notice = byId("isolationRecovery");
+  if (notice) {
+    notice.hidden = false;
+    byId("isolationRecoveryMessage").textContent = message;
+    const link = byId("isolationOpenTab");
+    link.href = location.href;
+  }
+}
+
+function waitForServiceWorkerControl(timeoutMs = 10000) {
+  const workers = navigator.serviceWorker;
+  if (workers.controller) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); workers.removeEventListener("controllerchange", changed); };
+    const changed = () => { if (workers.controller) { cleanup(); resolve(); } };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("The service worker did not take control. Check whether this browser allows service workers for this site.")); }, timeoutMs);
+    workers.addEventListener("controllerchange", changed);
+    changed(); // Also covers a claim that completed while the listener was being attached.
+  });
+}
 
 async function reloadForCrossOriginIsolation(reason) {
   if (window.crossOriginIsolated) {
     try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
+    const notice = byId("isolationRecovery");
+    if (notice) notice.hidden = true;
     return true;
   }
-
+  if (coiReloadPending) return false;
+  if (window.isSecureContext === false) {
+    showIsolationFailure("The emulator needs HTTPS or localhost. Open this site over a secure connection.");
+    return false;
+  }
+  if (window.top !== window.self) {
+    showIsolationFailure("This embedded view cannot enable the emulator's isolation. Open PPSSPP Web in its own browser tab.");
+    return false;
+  }
+  const policy = document.permissionsPolicy || document.featurePolicy;
+  if (policy?.allowsFeature && !policy.allowsFeature("cross-origin-isolated")) {
+    showIsolationFailure("This page's Permissions-Policy blocks cross-origin isolation. Open the site directly or correct the hosting policy.");
+    return false;
+  }
   let attempts;
   try { attempts = Number(sessionStorage.getItem(COI_RELOAD_KEY) || "0"); }
   catch (_) {
-    setStatus("Browser session storage is blocked. Allow site data to enable the secure runtime, or use a server with COOP/COEP headers.", "err");
-    hideLoading();
+    showIsolationFailure("Browser session storage is blocked. Allow site data or use a server with COOP/COEP headers.");
     return false;
   }
   if (attempts >= 3) {
-    log("Cross-origin isolation still unavailable after reload attempts. SharedArrayBuffer cannot be used on this page.", "err");
-    setStatus("SharedArrayBuffer unavailable. Check secure connection and browser site permissions, then reload.", "err");
-    hideLoading();
-    setStartButtonMode("idle");
+    showIsolationFailure("The browser could not enable SharedArrayBuffer after three reloads. Select Repair web runtime, or try a separate browser profile with extensions disabled for this site.");
     return false;
   }
-
   if (!("serviceWorker" in navigator)) {
-    log("Service workers are unavailable, cannot synthesize COOP/COEP headers for GitHub Pages.", "err");
-    setStatus("This browser cannot enable SharedArrayBuffer for GitHub Pages.", "err");
+    showIsolationFailure("Service workers are unavailable. Allow them for this site or use a server with COOP/COEP headers.");
     return false;
   }
-
-  try { sessionStorage.setItem(COI_RELOAD_KEY, String(attempts + 1)); }
-  catch (_) {
-    setStatus("Browser session storage is blocked. Allow site data, then reload.", "err");
-    hideLoading();
-    return false;
-  }
-  log("Cross-origin isolation required for WASM threads; reloading through service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
-  setStatus("Preparing SharedArrayBuffer isolation\u2026", "run");
-  showLoading("Preparing secure runtime\u2026");
-
+  coiReloadPending = true;
+  setStatus("Preparing browser isolation…", "run");
+  showLoading("Preparing secure runtime…");
   try {
-    await navigator.serviceWorker.register("sw.js", { scope: "./" });
-    await navigator.serviceWorker.ready;
-  } catch(e) {
-    log("SW registration before isolation reload failed: " + (e?.message || e), "warn");
+    await navigator.serviceWorker.register("sw.js", { scope: "./", updateViaCache: "none" });
+    // ready describes activation, not whether this document is controlled.
+    await waitForServiceWorkerControl();
+    sessionStorage.setItem(COI_RELOAD_KEY, String(Number.isFinite(attempts) ? attempts + 1 : 1));
+    log("Reloading through the controlling service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
+    const url = new URL(location.href);
+    url.searchParams.set("runtime-isolation", String(Date.now()));
+    location.replace(url.href);
+    // Keep the guard until navigation: controllerchange and Launch can race.
+  } catch (e) {
+    coiReloadPending = false;
+    showIsolationFailure("Unable to prepare browser isolation: " + (e?.message || e));
   }
-
-  location.reload();
   return false;
+}
+
+async function repairWebRuntime() {
+  const button = byId("isolationRepairBtn");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    if (window.isSecureContext === false || !("serviceWorker" in navigator)) throw new Error("Open the HTTPS site in a browser with service workers enabled.");
+    const registration = await navigator.serviceWorker.register("sw.js", { scope: "./", updateViaCache: "none" });
+    await registration.update();
+    await waitForServiceWorkerControl();
+    sessionStorage.removeItem(COI_RELOAD_KEY);
+    coiReloadPending = true;
+    const url = new URL(location.href);
+    url.searchParams.set("runtime-repair", String(Date.now()));
+    location.replace(url.href);
+  } catch (e) {
+    showIsolationFailure("Web runtime repair failed: " + (e?.message || e));
+    button.disabled = false;
+  }
 }
 
 /* ── Asset / game loading ───────────────────────────────────────── */
@@ -4946,6 +5000,7 @@ async function exportDiagnosticReport() {
     version: 1, created: new Date().toISOString(),
     browser: navigator.userAgent, platform: navigator.platform,
     hardwareConcurrency: navigator.hardwareConcurrency, deviceMemoryGB: navigator.deviceMemory,
+    secureContext: window.isSecureContext, embedded: window.top !== window.self, serviceWorkerController: navigator.serviceWorker?.controller?.scriptURL || "",
     crossOriginIsolated: window.crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
     opfsAvailable: hasOPFS(), buildDirectory: BUILD_DIR, coreRevision: BUILD_STAMP,
     runtimeReady, status: statusEl?.textContent,
@@ -5247,6 +5302,7 @@ on(startBtn, "click", () => {
   start();
 });
 
+on("isolationRepairBtn", "click", repairWebRuntime);
 on("demoLoadBtn", "click", loadDemoCatalog);
 on("demoSearch", "input", filterDemos);
 on("demoRegion", "change", filterDemos);
@@ -5628,9 +5684,10 @@ updateStorageInfo();    // populate OPFS tab with stats on load
 refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
 
 /* ── PWA: Service Worker registration ──────────────────────────── */
+if (window.crossOriginIsolated) void reloadForCrossOriginIsolation("already isolated");
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => reloadForCrossOriginIsolation("controllerchange"));
-  navigator.serviceWorker.register("sw.js", { scope: "./" })
+  navigator.serviceWorker.register("sw.js", { scope: "./", updateViaCache: "none" })
     .then(reg => {
       log("SW registered (scope: " + reg.scope + ")", "ok");
       if (navigator.serviceWorker.controller && !window.crossOriginIsolated) {

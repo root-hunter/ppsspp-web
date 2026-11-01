@@ -209,3 +209,32 @@ metrics, extraction/install byte callbacks and focus across terminal states.
 A throttled Chrome check exercised real download cancellation/retry, all three
 installation phases, persistent success, cross-section activity navigation,
 recoverable server errors and a 390px mobile viewport without horizontal overflow.
+
+## Browser isolation recovery
+
+The threaded core requires a secure top-level document and cross-origin isolation.
+GitHub Pages supplies no COOP/COEP headers itself; the app service worker adds them
+on the controlled navigation. Startup waits for actual document control, coalesces
+concurrent controller-change/launch requests, and counts only reloads that will
+navigate through that worker. Recovery uses a fresh navigation URL so a manual
+reload cannot keep bypassing worker isolation; document requests also bypass HTTP
+validation of older non-isolated HTML. Registration/control failures report their cause
+without spending retry attempts. A healthy isolated page resets stale counters.
+
+An isolation failure exposes Repair web runtime and Open in a separate tab in the
+Games section. Repair updates the app's service-worker registration with HTTP-cache
+bypass, resets the reload counter, and navigates to a fresh app URL. It does not
+unregister other workers, clear Cache Storage, or remove OPFS games/saves. Insecure
+contexts, embedded views, denied Permissions-Policy and exhausted retries have
+separate messages. Do not add `unsafe-eval` to solve extension content-script CSP
+errors; those errors must be investigated in the extension that produced them.
+
+The public Pages deployment was inspected on 2026-11-01: it still served
+`2026-11-01-guide-menu-v1`, and a clean Chrome profile successfully obtained
+`crossOriginIsolated=true` and `SharedArrayBuffer`. Local fixes and the demo UI
+require a new Pages deployment before they appear at the public URL.
+
+A local Chrome static-hosting test verified first-load isolation, recovery after a
+manual reload with an exhausted retry counter, and an explicit Permissions-Policy
+block without an automatic reload loop. The public deployment was only inspected;
+these changes have not been published to GitHub Pages from this workspace.

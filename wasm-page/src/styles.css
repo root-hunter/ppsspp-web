@@ -599,3 +599,7 @@ button.demo-activity { gap: 7px; border-color: #b0dcd64d; color: var(--accent2);
   body.emulator-started:not(.panel-open) #panelToggleBtn { padding: 8px; min-width: 40px; }
   body.emulator-started:not(.panel-open) #panelToggleBtn .btn-lbl { display: none; }
 }
+
+.isolation-recovery { padding: 20px; margin-bottom: 24px; border: 1px solid #e8bd7166; border-radius: 12px; background: #e8bd7110; }
+.isolation-recovery > p { margin-block: 10px 16px; max-width: 80ch; color: var(--muted); }
+.isolation-recovery .field-help { margin-bottom: 0; font-size: 12px; }
