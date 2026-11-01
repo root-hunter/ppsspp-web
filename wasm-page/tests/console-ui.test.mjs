@@ -93,6 +93,7 @@ test('Guide hold still works across a dropped frame and cannot be remapped to an
 
 // Exercise the actual DOM-navigation functions with controlled focus and layout.
 async function navigationFunctions(names, globals) {
+  if (names.includes('navigate')) names = [...names, 'sessionNavigationTarget'];
   const { default: ts } = await import('typescript');
   const source = ts.createSourceFile('console-ui.js', readFileSync(new URL('../public/console-ui.js', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const functions = [];
@@ -215,4 +216,27 @@ test('closed details exclude their contents even when the browser reports layout
   const outerSummary = { tagName: 'SUMMARY', contains: () => false };
   details.parentElement = { tagName: 'DETAILS', open: false, children: [outerSummary] };
   assert.equal(ctx.visible(summary), false); assert.equal(ctx.visible(element), false);
+});
+
+test('controller navigation connects section tabs, the return button and the top content row', async () => {
+  const tab = {...control('tabLibrary', 0, 0), matches: selector => selector === '.tab.active', closest: selector => selector === '.tabs' ? {} : null};
+  const resume = control('resumeSessionBtn', 900, 80);
+  const addGame = {...control('libraryImportLabel', 900, 180), closest: selector => selector === '.tab-panel.active' ? {} : null};
+  const search = {...control('librarySearch', 0, 250), closest: selector => selector === '.tab-panel.active' ? {} : null};
+  const document = {activeElement: tab};
+  const ctx = await navigationFunctions(['navigate'], {
+    document, controls: () => [tab, resume, addGame, search], spatialTarget,
+    focus: el => {document.activeElement = el;}, recoverFocus: () => tab,
+  });
+  ctx.navigate('down'); assert.equal(document.activeElement, resume);
+  ctx.navigate('left'); assert.equal(document.activeElement, resume);
+  ctx.navigate('right'); assert.equal(document.activeElement, resume);
+  ctx.navigate('down'); assert.equal(document.activeElement, addGame);
+  ctx.navigate('up'); assert.equal(document.activeElement, resume);
+  ctx.navigate('up'); assert.equal(document.activeElement, tab);
+});
+test('a hidden or disabled session action leaves ordinary controller navigation intact', async () => {
+  const first = control('first'), next = control('next', 120, 0);
+  const ctx = await navigationFunctions(['sessionNavigationTarget'], {});
+  assert.equal(ctx.sessionNavigationTarget(first, [first, next], 'right'), null);
 });

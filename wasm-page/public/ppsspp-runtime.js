@@ -398,7 +398,10 @@ window.addEventListener("keydown", event => {
 }, true);
 window.addEventListener("keyup", event => gameplayKeys.delete(event.code || event.key), true);
 
+let sessionGameName = "", sessionArtworkURL = "", sessionArtworkVersion = 0;
 function setSessionPresentation(name) {
+  sessionGameName = name;
+  const version = ++sessionArtworkVersion;
   const tile = [...(byId("libraryGrid")?.querySelectorAll(".collection-tile") || [])].find(tile => tile.dataset.game === name);
   const title = tile?.querySelector(".tile-title")?.textContent || (name ? prettyGameName(name) : "PPSSPP");
   const source = tile?.querySelector(".tile-art > img")?.getAttribute("src") || "";
@@ -408,23 +411,60 @@ function setSessionPresentation(name) {
     if (img) { if (source) img.src = source; else img.removeAttribute("src"); img.hidden = !source; }
   }
   if (byId("launchArtwork")) byId("launchArtwork").hidden = !source;
+  if (byId("sessionPreview")) { byId("sessionPreview").hidden = true; byId("sessionPreview").dataset.frameValid = ""; }
+  if (byId("sessionPreviewFallback")) byId("sessionPreviewFallback").hidden = !!source;
   updateSessionDock();
+  if (name) void refreshSessionArtwork(name, version);
+}
+async function refreshSessionArtwork(name, version) {
+  try {
+    const meta = await ensureGameMetadata(name);
+    const source = await readGameCoverURL(name, meta.coverType);
+    if (version !== sessionArtworkVersion) { if (source) URL.revokeObjectURL(source); return; }
+    if (sessionArtworkURL) URL.revokeObjectURL(sessionArtworkURL);
+    sessionArtworkURL = source;
+    if (meta.title) for (const id of ["sessionTitle", "launchTitle"]) { const el = byId(id); if (el) el.textContent = meta.title; }
+    if (source) {
+      const hasFrame = !byId("sessionPreview").hidden;
+      for (const id of ["sessionArtwork", "launchArtworkImage"]) { const img = byId(id); if (img) { img.src = source; img.hidden = id === "sessionArtwork" && hasFrame; } }
+      byId("sessionPreviewFallback").hidden = true;
+      byId("launchArtwork").hidden = false;
+    }
+  } catch (_) { /* Keep the title and fallback while metadata is unavailable. */ }
+}
+function sessionGameFromBootLog(text) {
+  const match = text.match(/\bBooted (\/games\/.+?)\.\.\./);
+  if (!match) return "";
+  const packagePath = match[1].match(/^\/games\/(.+)\.package\/EBOOT\.PBP$/i);
+  return packagePath ? packagePath[1] + ".pbp" : match[1].split("/").pop();
 }
 function captureSessionPreview() {
   const preview = byId("sessionPreview"), fallback = byId("sessionPreviewFallback"), artwork = byId("sessionArtwork");
   if (!preview) return;
-  let captured = false;
+  let captured = preview.dataset.frameValid === "true";
   try {
-    const ctx = preview.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(canvas, 0, 0, preview.width, preview.height);
-    const pixels = ctx.getImageData(0, 0, preview.width, preview.height).data;
+    const scratch = preview._captureCanvas ||= document.createElement("canvas");
+    scratch.width = preview.width; scratch.height = preview.height;
+    const ctx = scratch.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, scratch.width, scratch.height);
+    const pixels = ctx.getImageData(0, 0, scratch.width, scratch.height).data;
     let lit = 0;
     for (let i = 0; i < pixels.length; i += 16) if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 36 && pixels[i + 3]) lit++;
-    captured = lit > preview.width * preview.height / 80;
-  } catch (_) { /* Some WebGL frames cannot be copied after presentation. Use the game icon. */ }
+    if (lit > scratch.width * scratch.height / 80) {
+      preview.getContext("2d").drawImage(scratch, 0, 0);
+      preview.dataset.frameValid = "true";
+      captured = true;
+    }
+  } catch (_) { /* Keep the last rendered thumbnail when WebGL has discarded its buffer. */ }
   preview.hidden = !captured;
   if (artwork) artwork.hidden = captured || !artwork.getAttribute("src");
   if (fallback) fallback.hidden = captured || !!artwork?.getAttribute("src");
+}
+let sessionPreviewCapturedAt = 0;
+function cacheSessionPreview(now = performance.now()) {
+  if (!runtimeReady || runtimeFailed || menuSuspended || document.hidden || document.body.classList.contains("panel-open") || now - sessionPreviewCapturedAt < 250) return;
+  sessionPreviewCapturedAt = now;
+  captureSessionPreview();
 }
 function sessionIsMultiplayer() { return !!(networkActiveConfig || loadNetworkConfig()).enabled; }
 function updateSessionDock() {
@@ -436,7 +476,7 @@ function updateSessionDock() {
   byId("sessionState").textContent = runtimeFailed ? "Session stopped" : !runtimeReady ? "Starting" : menuSuspended ? "Paused" : live ? "Multiplayer · live" : "Running";
   byId("sessionDetail").textContent = runtimeFailed ? "Open System for recovery options." : !runtimeReady ? "Preparing the emulator…" : menuSuspended ? "Kept in this tab. Resume to continue." : live ? "The session stays connected while you browse." : "The emulator is running in this tab.";
   byId("resumeSessionBtn").disabled = !runtimeReady || runtimeFailed;
-  byId("sessionActionLabel").textContent = menuSuspended ? "Resume" : "Return to session";
+  byId("sessionActionLabel").textContent = "Return to session";
   dock.dataset.state = runtimeFailed ? "stopped" : menuSuspended ? "paused" : live ? "live" : "running";
 }
 function suspendMenuAudio() {
@@ -1558,10 +1598,10 @@ function renderDemos() {
   const empty = byId("demoEmpty");
   empty.hidden = result.total > 0 || demoCatalogState === "loading";
   const states = {
-    idle: ["A whole catalog to explore", "Browse free PSP demos from PlayDreamCreate. Download, install, and open them right here."],
-    error: ["The catalog is taking a break", "Your installed games are safe. Select Retry catalog to reconnect."],
+    idle: ["PSP demo archive", "Select Browse demos to load the catalog."],
+    error: ["Catalog unavailable", "Select Retry catalog to reconnect."],
     ready: demoInstalledOnly && !query && !region
-      ? ["Your discoveries will live here", "Install a demo from All demos to start your collection."]
+      ? ["No installed demos", "Install a demo from All demos."]
       : ["No demos found", "Try another title or region, or clear your filters to explore the full catalog."],
   };
   const emptyCopy = states[demoCatalogState] || states.idle;
@@ -1654,14 +1694,7 @@ function updateDemoTransfer(patch = {}, announce = false) {
   progress.setAttribute("aria-label", label + ": " + t.title);
   progress.setAttribute("aria-valuetext", t.percent == null ? label : label + " " + t.percent + "%");
   byId("demoTransferDetail").textContent = t.detail || "";
-  byId("demoTransferHint").textContent = t.hint || (terminal ? "" : "Keep browsing while we prepare your demo. One installation at a time.");
-  const steps = ["download", "extract", "install"], current = steps.indexOf(terminal ? t.activePhase : t.phase);
-  panel.querySelectorAll("[data-demo-step]").forEach(el => {
-    const index = steps.indexOf(el.dataset.demoStep);
-    el.dataset.state = t.phase === "ready" || index < current ? "done" : index === current ? (t.phase === "error" ? "error" : "active") : "pending";
-    if (index === current && !terminal) el.setAttribute("aria-current", "step"); else el.removeAttribute("aria-current");
-  });
-  byId("demoBrowseBtn").hidden = terminal;
+  byId("demoBrowseBtn").hidden = false;
   byId("demoCancelBtn").hidden = t.phase !== "download";
   byId("demoCancelBtn").disabled = !!t.cancelling;
   byId("demoCancelBtn").textContent = t.cancelling ? "Cancelling…" : "Cancel";
@@ -1682,7 +1715,8 @@ function updateDemoTransfer(patch = {}, announce = false) {
 function revealDemoTransfer() {
   activatePanelTab("library"); setPanelOpen(true);
   const target = demoTransfer ? byId("demoTransfer") : byId("demoSection");
-  target.scrollIntoView({ block: "start", behavior: "instant" });
+  if (demoTransfer) target.open = true;
+  target.scrollIntoView({ block: "nearest", behavior: "instant" });
   const action = !demoTransfer ? byId("demoLoadBtn") : demoTransfer.phase === "ready" ? byId("demoOpenBtn") : ["error", "cancelled"].includes(demoTransfer.phase) ? byId("demoRetryBtn") : byId("demoBrowseBtn");
   action?.focus({ preventScroll: true });
 }
@@ -1702,8 +1736,8 @@ async function downloadDemo(url) {
   demoTransfer = { title: demo.title, url, name: demo.name, phase: "download", activePhase: "download", percent: null };
   byId("demoFallback").hidden = true;
   updateDemoTransfer({ detail: "Connecting to the demo archive…" }, true);
+  byId("demoTransfer").open = false;
   renderDemos();
-  revealDemoTransfer();
   try {
     const archive = new URL(url).pathname.split("/").pop();
     const response = await fetch("api/demos/download?file=" + encodeURIComponent(archive), { signal: demoAbort.signal });
@@ -1748,7 +1782,7 @@ async function downloadDemo(url) {
     await refreshLibrary(); await updateStorageInfo();
     if (names.length === 1) demo.name = names[0];
     updateDemoTransfer({ phase: "ready", percent: 100, name: names[0], detail: "Installed and added to your library.", hint: "Open the demo to view its artwork and launch it in PPSSPP." }, true);
-    showToast("✓ " + demo.title + " is ready to play", 4500);
+
   } catch (e) {
     const cancelled = e.name === "AbortError";
     updateDemoTransfer({ phase: cancelled ? "cancelled" : "error", percent: null, detail: cancelled ? "No game was installed. You can start the download again anytime." : e.message,
@@ -3845,6 +3879,8 @@ function log(text, level) {
   // DevTools console retention is expensive during sustained core logging.
   if (level === "err" || preferences.getItem("ppsspp_verbose_console") === "1") console.log(raw);
   updateAudioDebugFromLog(text);
+  const sessionGame = sessionGameFromBootLog(text);
+  if (sessionGame) setSessionPresentation(sessionGame);
   if (!logRafId) logRafId = requestAnimationFrame(flushLog);
 }
 
@@ -5123,6 +5159,8 @@ async function start() {
     print(text)    { log("stdout: " + text); },
     printErr(text) {
       updateAudioDebugFromLog(text);
+  const sessionGame = sessionGameFromBootLog(text);
+  if (sessionGame) setSessionPresentation(sessionGame);
       if (!/WASM audio (push|callback) count=/.test(text)) log("stderr: " + text);
     },
     setStatus(text) { if (text) setStatus(text, "run"); },
@@ -5169,6 +5207,12 @@ async function start() {
       clearTimeout(window.ModuleStartupWatchdog);
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      const renderedFrames = window.MainLoop?.postMainLoop;
+      if (Array.isArray(renderedFrames)) {
+        if (!renderedFrames.includes(cacheSessionPreview)) renderedFrames.push(cacheSessionPreview);
+      } else {
+        window.Module.postMainLoop = cacheSessionPreview;
+      }
       setTimeout(() => { syncMenuSuspension(document.body.classList.contains("panel-open")); updateSessionDock(); }, 0);
       setStatus(gameArg ? "Game running" : "Library ready", "ok");
       hideLoading();
@@ -5313,8 +5357,8 @@ on("demoResetBtn", "click", resetDemoFilters);
 on("demoPrevBtn", "click", () => changeDemoPage(-1));
 on("demoNextBtn", "click", () => changeDemoPage(1));
 on("demoActivityBtn", "click", revealDemoTransfer);
-on("demoBrowseBtn", "click", () => { byId("demoSearch").focus({ preventScroll: true }); byId("demoSearch").scrollIntoView({ block: "center", behavior: "instant" }); });
-on("demoDismissBtn", "click", dismissDemoTransfer);
+on("demoBrowseBtn", "click", () => { byId("demoTransfer").open = false; byId("demoTransferSummary").focus({ preventScroll: true }); });
+on("demoDismissBtn", "click", event => { event.preventDefault(); event.stopPropagation(); dismissDemoTransfer(); });
 on("demoRetryBtn", "click", () => { if (demoTransfer) downloadDemo(demoTransfer.url); });
 on("demoOpenBtn", "click", () => { if (demoTransfer?.name) showGameInfo(demoTransfer.name); });
 on("demoCancelBtn", "click", () => { if (demoAbort) { const focusAfterCancel = document.activeElement === byId("demoCancelBtn"); updateDemoTransfer({ cancelling: true, focusAfterCancel, detail: "Stopping the download…" }, true); demoAbort.abort(); } });

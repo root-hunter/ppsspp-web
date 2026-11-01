@@ -152,10 +152,27 @@
   });
   observer.observe(byId('sidePanel'), { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'class', 'open'] });
   for (const id of ['gameInfoModal', 'saveInfoModal']) observer.observe(byId(id), { attributes: true, attributeFilter: ['disabled', 'hidden', 'class', 'open'], childList: true, subtree: true });
+  function sessionNavigationTarget(current, list, direction) {
+    const resume = list.find(el => el.id === 'resumeSessionBtn');
+    if (!resume) return null;
+    const tab = list.find(el => el.matches?.('.tab.active'));
+    const panelControls = list.filter(el => el.closest?.('.tab-panel.active'));
+    if (current === resume) {
+      if (direction === 'up') return tab || resume;
+      if (direction === 'down') return panelControls[0] || resume;
+      return resume;
+    }
+    if (direction === 'down' && current.closest?.('.tabs')) return resume;
+    if (direction === 'up' && panelControls.includes(current)) {
+      const firstRow = Math.min(...panelControls.map(el => el.getBoundingClientRect().top));
+      if (current.getBoundingClientRect().top <= firstRow + 4) return resume;
+    }
+    return null;
+  }
   function navigate(direction) {
     const list = controls(), current = list.includes(document.activeElement) ? document.activeElement : recoverFocus();
     if (!current) return;
-    const target = spatialTarget(current.getBoundingClientRect(), list.filter(el => el !== current).map(element => ({ element, rect: element.getBoundingClientRect() })), direction);
+    const target = sessionNavigationTarget(current, list, direction) || spatialTarget(current.getBoundingClientRect(), list.filter(el => el !== current).map(element => ({ element, rect: element.getBoundingClientRect() })), direction);
     if (target) focus(target);
   }
   function closeDialog(commit = false) {

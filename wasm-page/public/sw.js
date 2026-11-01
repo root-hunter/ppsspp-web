@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v23-isolation-recovery";
+const CACHE_VERSION = "ppsspp-angular-v25-session-controls";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [

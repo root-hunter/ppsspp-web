@@ -75,19 +75,12 @@
         <button type="button" class="tab"        data-tab="about"><i data-lucide="info"></i> About</button>
       </nav>
 
-      <section id="sessionDock" class="session-dock" aria-labelledby="sessionHeading" hidden>
-        <div class="session-heading"><h2 id="sessionHeading">Continue playing</h2><span>Your current session</span></div>
-        <div class="session-card">
-          <div class="session-preview" aria-hidden="true">
-            <canvas id="sessionPreview" width="960" height="544" hidden></canvas>
-            <img id="sessionArtwork" alt="" hidden>
-            <span id="sessionPreviewFallback"><i data-lucide="gamepad-2"></i><span>Ready when you are.</span></span>
-          </div>
-          <div class="session-card-top"><span id="sessionState" class="session-state">In progress</span><span class="session-platform">PSP</span></div>
-          <div class="session-copy"><h3 id="sessionTitle">PPSSPP</h3><p id="sessionDetail">Return to your session.</p></div>
-          <button id="resumeSessionBtn" type="button" aria-labelledby="sessionActionLabel sessionTitle" aria-describedby="sessionDetail">
-            <span class="session-action"><i data-lucide="play"></i><span id="sessionActionLabel">Resume</span></span>
-          </button>
+      <section id="sessionDock" class="session-dock" aria-label="Current session" hidden>
+        <div class="session-banner">
+          <span class="session-icon" aria-hidden="true"><canvas id="sessionPreview" width="320" height="180" hidden></canvas><img id="sessionArtwork" alt="" hidden><span id="sessionPreviewFallback"><i data-lucide="gamepad-2"></i></span></span>
+          <div class="session-copy"><strong id="sessionTitle">PPSSPP</strong><span id="sessionState" class="session-state">Running</span></div>
+          <button id="resumeSessionBtn" type="button" aria-labelledby="sessionActionLabel sessionTitle" aria-describedby="sessionState sessionDetail"><i data-lucide="play"></i><span id="sessionActionLabel">Return to session</span></button>
+          <span id="sessionDetail" class="sr-only">Return to your session.</span>
         </div>
       </section>
 
@@ -117,23 +110,21 @@
           <div id="librarySelection" class="collection-selection" aria-live="polite"></div>
           <section id="demoSection" class="demo-section" aria-labelledby="demoHeading">
             <div class="demo-heading">
-              <div class="demo-heading-copy"><span class="demo-eyebrow">PLAY SOMETHING NEW</span><h2 id="demoHeading">Discover PSP demos<span class="demo-heading-dot" aria-hidden="true">.</span></h2><p>A little nostalgia. Your next discovery. Install a demo and make it part of your library.</p></div>
+              <div class="demo-heading-copy"><h2 id="demoHeading">PSP demos</h2></div>
               <button id="demoLoadBtn" type="button" class="demo-refresh" aria-label="Browse demo catalog" title="Browse demo catalog"><i data-lucide="refresh-cw"></i><span>Browse demos</span></button>
             </div>
-            <div id="demoTransfer" class="demo-transfer" aria-labelledby="demoTransferTitle" hidden>
-              <div class="demo-transfer-top"><span id="demoTransferIcon" class="demo-transfer-icon" aria-hidden="true"></span><div class="demo-transfer-copy"><span id="demoTransferPhase" class="demo-eyebrow">DOWNLOAD</span><h3 id="demoTransferTitle"></h3></div><span id="demoTransferPercent" class="demo-percent"></span><button id="demoDismissBtn" type="button" class="icon-btn" aria-label="Dismiss installation notification" hidden><i data-lucide="x"></i></button></div>
-              <ol class="demo-steps" aria-label="Installation stages"><li data-demo-step="download">Download</li><li data-demo-step="extract">Extract</li><li data-demo-step="install">Install</li></ol>
-              <progress id="demoProgress" max="100" aria-label="Current installation stage progress"></progress>
-              <div class="demo-transfer-bottom"><div><p id="demoTransferDetail"></p><p id="demoTransferHint" class="demo-transfer-hint"></p></div><div class="demo-transfer-actions"><button id="demoBrowseBtn" type="button">Keep browsing</button><button id="demoCancelBtn" type="button">Cancel</button><button id="demoRetryBtn" type="button" hidden>Try again</button><button id="demoOpenBtn" type="button" class="primary" hidden><i data-lucide="play"></i> Open demo</button><a id="demoTransferZip" class="btn" target="_blank" rel="noopener noreferrer" hidden>Download ZIP</a></div></div>
-            </div>
+            <details id="demoTransfer" class="demo-transfer" hidden>
+              <summary id="demoTransferSummary" aria-controls="demoTransferDetails"><span id="demoTransferIcon" class="demo-transfer-icon" aria-hidden="true"></span><span class="demo-transfer-copy"><strong id="demoTransferTitle"></strong><span id="demoTransferPhase">Downloading</span></span><span id="demoTransferPercent" class="demo-percent"></span><button id="demoDismissBtn" type="button" class="icon-btn" aria-label="Dismiss download" hidden><i data-lucide="x"></i></button><progress id="demoProgress" max="100" aria-label="Current installation stage progress"></progress></summary>
+              <div id="demoTransferDetails" class="demo-transfer-details"><p id="demoTransferDetail"></p><div class="demo-transfer-actions"><button id="demoBrowseBtn" type="button">Close details</button><button id="demoCancelBtn" type="button">Cancel</button><button id="demoRetryBtn" type="button" hidden>Retry</button><button id="demoOpenBtn" type="button" hidden><i data-lucide="play"></i> Open demo</button><a id="demoTransferZip" class="btn" target="_blank" rel="noopener noreferrer" hidden>Download ZIP</a></div></div>
+            </details>
             <div class="demo-browser-toolbar">
               <div class="demo-views" role="group" aria-label="Demo collection"><button id="demoAllBtn" type="button" aria-pressed="true">All demos <span id="demoTotalCount">—</span></button><button id="demoInstalledBtn" type="button" aria-pressed="false">Installed <span id="demoInstalledCount">0</span></button></div>
-              <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search demos</span><input id="demoSearch" type="search" placeholder="Find your next demo…" autocomplete="off"></label>
+              <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search demos</span><input id="demoSearch" type="search" placeholder="Search demos" autocomplete="off"></label>
               <label class="demo-select"><span>Region</span><select id="demoRegion"><option value="">All regions</option><option value="EU">Europe</option><option value="US">USA</option><option value="JP">Japan</option><option value="KR">Korea</option></select></label>
               <label class="demo-select"><span>Sort by</span><select id="demoSort"><option value="title">Title A–Z</option><option value="title-desc">Title Z–A</option><option value="size">Smallest first</option></select></label>
             </div>
-            <div class="demo-results-heading"><p id="demoStatus" role="status" aria-live="polite">Your next game is a demo away.</p><button id="demoResetBtn" type="button" class="demo-text-button" hidden>Clear filters</button></div>
-            <div id="demoEmpty" class="demo-empty"><i data-lucide="gamepad-2"></i><h3 id="demoEmptyTitle">A whole catalog to explore</h3><p id="demoEmptyDetail">Browse free PSP demos from PlayDreamCreate. Download, install, and open them right here.</p></div>
+            <div class="demo-results-heading"><p id="demoStatus" role="status" aria-live="polite">Browse the PlayDreamCreate catalog.</p><button id="demoResetBtn" type="button" class="demo-text-button" hidden>Clear filters</button></div>
+            <div id="demoEmpty" class="demo-empty"><i data-lucide="gamepad-2"></i><h3 id="demoEmptyTitle">PSP demo archive</h3><p id="demoEmptyDetail">Select Browse demos to load the catalog.</p></div>
             <div id="demoGrid" class="demo-grid" aria-label="PSP demos"></div>
             <nav id="demoPagination" class="demo-pagination" aria-label="Demo catalog pages" hidden><button id="demoPrevBtn" type="button" aria-controls="demoGrid">← Previous</button><span id="demoPageLabel"></span><button id="demoNextBtn" type="button" aria-controls="demoGrid">Next →</button></nav>
             <p class="demo-source">Catalog by <a href="https://playdreamcreate.com/" target="_blank" rel="noopener noreferrer">PlayDreamCreate <i data-lucide="external-link"></i></a><span>ZIP files are installed automatically.</span></p>

@@ -19,14 +19,19 @@ and fills the page. Escape can exit that fallback during gameplay.
 
 Opening the dashboard suspends a ready **local** emulator using its main-loop
 controls and silences its audio contexts. A keepalive reference preserves the
-WASM runtime while the loop is paused. Continue playing presents the current
-session as a panoramic activity card,
-with a 960 × 544 frame preview, embedded game artwork or a styled PSP fallback.
-A contrast overlay keeps the title, status badge and Resume readable. The entire
-card is one focusable resume target for pointer, keyboard and controller, with a
-visible focus ring and reduced-motion support. Compact landscape and phone
-layouts keep the library accessible below the card. The runtime retains one
-current session; cards are not a history of multiple suspended games. Closing
+WASM runtime while the loop is paused. Return to session appears as a full-width
+compact banner with a gameplay thumbnail, the game title/state and a distinct
+Return to session button. The button is the banner's only focus target. Opening
+the dashboard focuses it; Up returns to the active section tab, Down enters the
+section's first control, and Up from its first row returns to the button. Left and
+Right keep focus on the return action rather than jumping to distant controls.
+
+A small 320 × 180 thumbnail is cached after rendering, at most four times per
+second during gameplay, so WebGL buffer disposal cannot erase the last valid frame
+when the loop pauses. Capture stops while paused, hidden or browsing the dashboard.
+Missing/black frames retain the previous valid thumbnail; the game's icon is used
+until a valid frame is available. Artwork loading cannot replace a captured frame.
+The banner represents the current session. Closing
 the menu resumes after the transition; reopening it cancels a pending resume. Held gameplay keyboard
 keys are released before the menu takes focus. Resume is immediate with reduced
 motion, and menu interactions cannot automatically restart paused audio.
@@ -186,23 +191,15 @@ titles still depends on the emulator and individual demo.
 
 ### Demo installation feedback
 
-A persistent activity card reports Download → Extract → Install, using network
-bytes, decompressed bytes and completed storage writes for each stage's percentage.
-The percentage refers to the current stage, not a simulated overall timer. Unknown
-network sizes remain indeterminate; download speed and estimated remaining time
-appear only after enough transfer time has elapsed. The download can be cancelled;
-extraction and storage finish without exposing an unsafe partial cancellation.
-
-The header activity button shows the current phase/percentage across dashboard
-sections and opens the activity card. Success stays visible with Open demo and
-Dismiss; failures offer Try again plus the direct ZIP fallback. Cancellation keeps
-a retry action. Keep browsing returns to search without interrupting installation.
-Stage changes and occasional download milestones are announced to screen readers;
-chunk updates do not repeatedly announce the entire panel. Completion does not
-move focus away from browsing controls. If Cancel disappears during a phase change,
-focus moves to an available activity action. The header activity action also
-participates in controller navigation. Mobile layouts and reduced-motion settings
-are supported.
+Download activity is a collapsed row with the demo title, current phase and actual
+percentage. Its two-pixel progress track and header activity button remain visible
+without opening a large notification or scrolling away from the selected game.
+Select the row or header activity button to expand byte counts, speed/ETA and
+Cancel / Retry / Open actions; Close details collapses it again. Download, extract
+and install percentages still use actual completed bytes for the current phase.
+Unknown totals stay indeterminate. Success and errors stay in the same row until
+dismissed, without an additional completion toast. Stage and milestone screen-reader
+announcements remain available. Catalog headings and empty states use short labels.
 
 Additional tests cover combined filtering/sorting/pagination, measured transfer
 metrics, extraction/install byte callbacks and focus across terminal states.
@@ -238,3 +235,18 @@ A local Chrome static-hosting test verified first-load isolation, recovery after
 manual reload with an exhausted retry counter, and an explicit Permissions-Policy
 block without an automatic reload loop. The public deployment was only inspected;
 these changes have not been published to GitHub Pages from this workspace.
+
+Compact UI validation: a Chrome check measured a 64px session banner and 56px closed
+transfer row at 390px width, exercised expand/collapse and a real demo download,
+confirmed no extra completion toast, and verified icon updates after native boot
+messages and library refreshes. Unit tests cover frame/icon fallback, package/fast-mount
+boot paths and stale asynchronous artwork requests.
+
+Session action validation additionally covers directional controller transitions,
+gameplay-frame capture with an icon present, retaining frames after WebGL buffer
+clearing, and sampling exclusion while paused/hidden.
+
+A Chrome check with Ape Academy 2 running in the actual WASM core verified a valid
+rendered-frame thumbnail before pause, initial focus on the separate Return to
+session button, simulated controller Up/Down/Left/Confirm navigation, session resume,
+and the 390px mobile layout. This does not replace physical controller testing.

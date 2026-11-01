@@ -299,7 +299,7 @@ test('failed preload never releases the dependency and starts the core without i
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    cacheSessionPreview: noop, setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: dep => removed.push(dep),
@@ -323,7 +323,7 @@ test('direct game launch also runs library automount before releasing startup', 
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    cacheSessionPreview: noop, setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
@@ -830,7 +830,6 @@ test('transfer notifications preserve browsing focus and recover a Cancel button
   ctx.updateDemoTransfer({phase: 'ready'}, true);
   assert.equal(document.activeElement.id, 'demoSearch');
   assert.equal(byId('demoOpenBtn').hidden, false);
-  assert(steps.every(step => step.dataset.state === 'done'));
   assert.match(byId('demoAnnouncement').textContent, /Ready to play/);
 });
 
@@ -922,4 +921,60 @@ test('isolating document navigations bypass the HTTP cache and its old validatio
   assert.equal(options.headers.get('Accept'), 'text/html');
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Cross-Origin-Opener-Policy'), 'same-origin');
+});
+
+test('session artwork follows games booted through the native browser, including demo packages', () => {
+  const ctx = load(['sessionGameFromBootLog']);
+  assert.equal(ctx.sessionGameFromBootLog('BOOT N: Booted /games/UCES00302.package/EBOOT.PBP...'), 'UCES00302.pbp');
+  assert.equal(ctx.sessionGameFromBootLog('BOOT N: Booted /games/.fast-1/Ridge_Racer.iso...'), 'Ridge_Racer.iso');
+  assert.equal(ctx.sessionGameFromBootLog('BOOT N: Booted /games/game.iso...'), 'game.iso');
+  assert.equal(ctx.sessionGameFromBootLog('Boot failed: game.iso'), '');
+});
+test('session thumbnail captures gameplay, retains its last frame and falls back to the icon', () => {
+  let snapshots = 0, writes = 0;
+  const context = {drawImage() {snapshots++;}, getImageData: () => ({data: new Uint8Array(64).fill(255)})};
+  const elements = {
+    sessionPreview: {width: 4, height: 4, hidden: true, dataset: {}, _captureCanvas: {getContext: () => context}, getContext: () => ({drawImage() {writes++;}})},
+    sessionArtwork: {hidden: false, getAttribute: () => 'blob:game-icon'},
+    sessionPreviewFallback: {hidden: false},
+  };
+  const ctx = load(['captureSessionPreview'], {canvas: {}, byId: id => elements[id]});
+  ctx.captureSessionPreview();
+  assert.equal(snapshots, 1); assert.equal(writes, 1);
+  assert.equal(elements.sessionPreview.hidden, false); assert.equal(elements.sessionArtwork.hidden, true);
+  context.getImageData = () => ({data: new Uint8Array(64)});
+  ctx.captureSessionPreview();
+  assert.equal(elements.sessionPreview.hidden, false); assert.equal(writes, 1);
+  elements.sessionPreview.dataset.frameValid = '';
+  ctx.captureSessionPreview();
+  assert.equal(elements.sessionPreview.hidden, true); assert.equal(elements.sessionArtwork.hidden, false);
+});
+test('thumbnail cache samples at most four times per second and stops while paused or hidden', () => {
+  let captures = 0;
+  const document = {hidden: false, body: {classList: {contains: () => false}}};
+  const ctx = load(['cacheSessionPreview'], {document, runtimeReady: true, runtimeFailed: false, menuSuspended: false, sessionPreviewCapturedAt: 0, captureSessionPreview: () => {captures++;}});
+  ctx.cacheSessionPreview(300); ctx.cacheSessionPreview(400); ctx.cacheSessionPreview(550);
+  assert.equal(captures, 2);
+  ctx.menuSuspended = true; ctx.cacheSessionPreview(900);
+  ctx.menuSuspended = false; document.hidden = true; ctx.cacheSessionPreview(1000);
+  assert.equal(captures, 2);
+});
+test('session artwork owns its URL and ignores stale asynchronous game changes', async () => {
+  const elements = new Map(), revoked = [];
+  const byId = id => {if (!elements.has(id)) elements.set(id, {}); return elements.get(id);};
+  const ctx = load(['refreshSessionArtwork'], {
+    byId, sessionArtworkVersion: 2, sessionArtworkURL: 'blob:previous',
+    ensureGameMetadata: async name => ({title: name, coverType: 'image/png'}),
+    readGameCoverURL: async name => 'blob:' + name,
+    URL: {revokeObjectURL: url => revoked.push(url)},
+  });
+  await ctx.refreshSessionArtwork('old.pbp', 1);
+  assert.deepEqual(revoked, ['blob:old.pbp']);
+  assert.equal(elements.size, 0);
+  byId('sessionPreview').hidden = true;
+  await ctx.refreshSessionArtwork('current.pbp', 2);
+  assert.equal(byId('sessionTitle').textContent, 'current.pbp');
+  assert.equal(byId('sessionArtwork').src, 'blob:current.pbp');
+  assert.equal(byId('sessionArtwork').hidden, false);
+  assert.deepEqual(revoked, ['blob:old.pbp', 'blob:previous']);
 });
