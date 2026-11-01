@@ -435,7 +435,7 @@ function updateSessionDock() {
   byId("sessionState").textContent = runtimeFailed ? "Session stopped" : !runtimeReady ? "Starting" : menuSuspended ? "Paused" : live ? "Multiplayer · live" : "Running";
   byId("sessionDetail").textContent = runtimeFailed ? "Open System for recovery options." : !runtimeReady ? "Preparing the emulator…" : menuSuspended ? "Kept in this tab. Resume to continue." : live ? "The session stays connected while you browse." : "The emulator is running in this tab.";
   byId("resumeSessionBtn").disabled = !runtimeReady || runtimeFailed;
-  byId("resumeSessionBtn").querySelector("span").textContent = menuSuspended ? "Resume" : "Return to session";
+  byId("sessionActionLabel").textContent = menuSuspended ? "Resume" : "Return to session";
   dock.dataset.state = runtimeFailed ? "stopped" : menuSuspended ? "paused" : live ? "live" : "running";
 }
 function suspendMenuAudio() {

@@ -19,9 +19,15 @@ and fills the page. Escape can exit that fallback during gameplay.
 
 Opening the dashboard suspends a ready **local** emulator using its main-loop
 controls and silences its audio contexts. A keepalive reference preserves the
-WASM runtime while the loop is paused. The session card shows Paused, the game
-artwork or an available frame preview, and Resume. Closing the menu resumes after
-the transition; reopening it cancels a pending resume. Held gameplay keyboard
+WASM runtime while the loop is paused. Continue playing presents the current
+session as a panoramic activity card,
+with a 960 × 544 frame preview, embedded game artwork or a styled PSP fallback.
+A contrast overlay keeps the title, status badge and Resume readable. The entire
+card is one focusable resume target for pointer, keyboard and controller, with a
+visible focus ring and reduced-motion support. Compact landscape and phone
+layouts keep the library accessible below the card. The runtime retains one
+current session; cards are not a history of multiple suspended games. Closing
+the menu resumes after the transition; reopening it cancels a pending resume. Held gameplay keyboard
 keys are released before the menu takes focus. Resume is immediate with reduced
 motion, and menu interactions cannot automatically restart paused audio.
 

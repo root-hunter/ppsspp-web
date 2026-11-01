@@ -74,10 +74,20 @@
         <button type="button" class="tab"        data-tab="about"><i data-lucide="info"></i> About</button>
       </nav>
 
-      <section id="sessionDock" class="session-dock" aria-label="Current session" hidden>
-        <div class="session-preview"><canvas id="sessionPreview" width="320" height="180" aria-label="Session preview" hidden></canvas><img id="sessionArtwork" alt="" hidden><span id="sessionPreviewFallback"><i data-lucide="gamepad-2"></i></span></div>
-        <div class="session-copy"><span id="sessionState" class="session-state">In progress</span><h2 id="sessionTitle">PPSSPP</h2><p id="sessionDetail">Return to your session.</p></div>
-        <button id="resumeSessionBtn" type="button" class="primary"><i data-lucide="play"></i><span>Resume</span></button>
+      <section id="sessionDock" class="session-dock" aria-labelledby="sessionHeading" hidden>
+        <div class="session-heading"><h2 id="sessionHeading">Continue playing</h2><span>Your current session</span></div>
+        <div class="session-card">
+          <div class="session-preview" aria-hidden="true">
+            <canvas id="sessionPreview" width="960" height="544" hidden></canvas>
+            <img id="sessionArtwork" alt="" hidden>
+            <span id="sessionPreviewFallback"><i data-lucide="gamepad-2"></i><span>Ready when you are.</span></span>
+          </div>
+          <div class="session-card-top"><span id="sessionState" class="session-state">In progress</span><span class="session-platform">PSP</span></div>
+          <div class="session-copy"><h3 id="sessionTitle">PPSSPP</h3><p id="sessionDetail">Return to your session.</p></div>
+          <button id="resumeSessionBtn" type="button" aria-labelledby="sessionActionLabel sessionTitle" aria-describedby="sessionDetail">
+            <span class="session-action"><i data-lucide="play"></i><span id="sessionActionLabel">Resume</span></span>
+          </button>
+        </div>
       </section>
 
       <div class="tab-panel active" id="tabLibrary">
