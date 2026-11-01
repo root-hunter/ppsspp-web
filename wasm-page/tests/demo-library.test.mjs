@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import { deflateRawSync } from 'node:zlib';
-const ctx = vm.createContext({ Uint8Array, DataView, TextDecoder, Blob, DecompressionStream, URL });
+const ctx = vm.createContext({ Uint8Array, DataView, TextDecoder, Blob, DecompressionStream, URL, AbortSignal });
 vm.runInContext(readFileSync(new URL('../public/demo-library.js', import.meta.url), 'utf8'), ctx);
 const api = ctx.PPSSPPDemos;
 function zip(entries, method = 8) {
@@ -95,4 +95,65 @@ test('shared pagination clamps short final pages and resets invalid inputs', () 
   assert.equal(api.paginate(records, -1).page, 1);
   assert.equal(api.paginate([], 20).page, 1);
   assert.equal(api.paginate([], 20).first, 0);
+});
+
+const demoURL = 'https://data.playdreamcreate.com/ape-academy-2_EU.zip';
+const demoRecord = { title: 'Ape Academy 2', productCode: 'UCES00302', region: 'eu', url: demoURL };
+test('GitHub Pages loads the bundled catalog without contacting an API or remote host', async () => {
+  const calls = [];
+  const result = await api.loadCatalog({ staticHosting: true, fetcher: async url => {
+    calls.push(url);
+    return new Response(JSON.stringify([demoRecord]), { headers: { 'Content-Type': 'application/json' } });
+  } });
+  assert.deepEqual(calls, ['demo-catalog.json']);
+  assert.equal(result.gateway, false);
+  assert.equal(result.records[0].name, 'UCES00302.pbp');
+  const snapshot = api.catalog(JSON.parse(readFileSync(new URL('../public/demo-catalog.json', import.meta.url), 'utf8')));
+  assert(snapshot.length > 0);
+});
+test('static hosts fall back from an unavailable API to the bundled catalog', async () => {
+  const calls = [];
+  const result = await api.loadCatalog({ fetcher: async url => {
+    calls.push(url);
+    return url.startsWith('api/') ? new Response('<html>SPA fallback</html>')
+      : new Response(JSON.stringify([demoRecord]), { headers: { 'Content-Type': 'application/json' } });
+  } });
+  assert.deepEqual(calls, ['api/demos/catalog', 'demo-catalog.json']);
+  assert.equal(result.gateway, false);
+});
+test('direct ZIP download accepts the archive MIME type and needs no gateway', async () => {
+  const calls = [];
+  const response = new Response('zip', { headers: { 'Content-Type': 'application/x-zip-compressed' } });
+  assert.equal(await api.download(demoURL, { fetcher: async (url, options) => {
+    calls.push(url);
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.mode, 'cors');
+    return response;
+  } }), response);
+  assert.deepEqual(calls, [demoURL]);
+});
+test('CORS failure uses only an available gateway, otherwise explains ZIP import', async () => {
+  const calls = [];
+  const fetcher = async url => {
+    calls.push(url);
+    if (url.startsWith('https:')) throw new TypeError('Failed to fetch');
+    return new Response('zip', { headers: { 'Content-Type': 'application/zip' } });
+  };
+  await api.download(demoURL, { gateway: true, fetcher });
+  assert.deepEqual(calls, [demoURL, 'api/demos/download?file=ape-academy-2_EU.zip']);
+  calls.length = 0;
+  await assert.rejects(api.download(demoURL, { fetcher }), /Import ZIP/);
+  assert.deepEqual(calls, [demoURL]);
+});
+test('cancelling a direct download never starts a gateway request', async () => {
+  const controller = new AbortController(), calls = [];
+  await assert.rejects(api.download(demoURL, { gateway: true, signal: controller.signal, fetcher: async url => {
+    calls.push(url);
+    controller.abort();
+    throw controller.signal.reason;
+  } }), { name: 'AbortError' });
+  assert.deepEqual(calls, [demoURL]);
+});
+test('download rejects HTML error pages instead of trying to extract them as ZIPs', async () => {
+  await assert.rejects(api.download(demoURL, { fetcher: async () => new Response('<html>not a ZIP</html>') }), /Import ZIP/);
 });

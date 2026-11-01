@@ -1021,3 +1021,31 @@ test('page target follows the visible demo section instead of stale offscreen li
   focusedRect = rect(150, 200);
   assert.equal(ctx.activeCollectionKind(), 'library');
 });
+
+test('static demo cards download the official ZIP and offer import; installed demos still open', () => {
+  const elements = new Map();
+  const record = { title: 'Ape Academy 2', productCode: 'UCES00302', region: 'EU', name: 'UCES00302.pbp', url: 'https://data.playdreamcreate.com/ape-academy-2_EU.zip' };
+  const ctx = load(['renderDemos'], {
+    byId: id => {
+      if (!elements.has(id)) elements.set(id, { setAttribute() {} });
+      return elements.get(id);
+    },
+    window: { PPSSPPDemos: { browse: () => ({ records: [record], total: 1, page: 1, pages: 1, first: 1, last: 1 }) } },
+    replaceCollectionContent: (grid, html) => { grid.innerHTML = html; },
+    updateCollectionPageStatus() {},
+    svgIcon: () => '', esc: value => String(value), formatBytes: () => '7 MB',
+  }, `let demoCatalog = ${JSON.stringify([record])}, demoInstalled = new Set(), demoGateway = false;
+    let demoPage = 1, demoPages = 1, demoInstalledOnly = false, demoCatalogState = 'ready', demoBusy = false, demoTransfer = null;`);
+  ctx.renderDemos();
+  const html = elements.get('demoGrid').innerHTML;
+  assert(html.includes(`href="${record.url}"`));
+  assert(html.includes('Download ZIP'));
+  assert(html.includes('data-demo-import'));
+  assert(!html.includes('data-demo="'));
+  vm.runInContext(`demoInstalled.add('${record.name}')`, ctx);
+  ctx.renderDemos();
+  assert(elements.get('demoGrid').innerHTML.includes('Open demo'));
+  vm.runInContext('demoInstalled.clear(); demoGateway = true;', ctx);
+  ctx.renderDemos();
+  assert(elements.get('demoGrid').innerHTML.includes('Install demo'));
+});

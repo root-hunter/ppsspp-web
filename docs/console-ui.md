@@ -163,15 +163,26 @@ Cards use local typographic artwork and offer Install demo, a direct ZIP fallbac
 and Open demo after installation. Installed games persist in OPFS and use the normal
 game details, embedded artwork, preload and emulator workflows.
 
-`server/serve.py` serves `GET /api/demos/catalog` and
-`GET /api/demos/download?file=<archive.zip>`. This read-only gateway is required
-for integrated downloads because `data.playdreamcreate.com` currently has no
-Access-Control-Allow-Origin header. It accepts only simple ZIP filenames on that
-fixed HTTPS origin, refuses redirects, applies timeouts/size limits and streams
-responses without keeping a second cached ZIP. Static hosting can load the catalog
-through its public CORS endpoint; download a ZIP with the card link and import it
-through Add game when the gateway is unavailable. Restart the Python server after
-updating; rebuild the Angular app for the updated UI.
+GitHub Pages loads the bundled `public/demo-catalog.json` snapshot with relative
+URLs, including when deployed beneath a repository path. Cards offer **Download
+ZIP** and **Import ZIP**: the former opens the official archive in the browser,
+and the latter opens the existing game importer. This works without a server or
+multiplayer relay. The user selects the downloaded ZIP for installation into OPFS.
+Other static hosts use the same flow when the local API is unavailable. Refreshing
+the snapshot requires replacing `public/demo-catalog.json` with the public catalog
+and rebuilding the app.
+
+`server/serve.py` also serves `GET /api/demos/catalog` and
+`GET /api/demos/download?file=<archive.zip>`. When the catalog API is available,
+cards offer integrated installation: downloads try the official HTTPS URL first,
+then use the optional same-origin gateway if CORS blocks it. The archive currently
+does not send Access-Control-Allow-Origin; a static page cannot automatically
+read those ZIPs. Browser downloads and subsequent file selection avoid that
+restriction without a third-party proxy. Responses using ZIP or octet-stream MIME
+types are accepted; HTML error pages are rejected. Cancellation stops fallback.
+The gateway accepts only simple ZIP filenames on the fixed HTTPS origin, refuses
+redirects, applies timeouts/size limits and streams responses. Restart the Python
+server after updating; rebuild the Angular app for the updated UI.
 
 The shared ZIP importer is used by Add game and URL/Drive ZIP imports. It handles
 stored and deflate entries, checks CRC and sizes, rejects traversal, duplicate
