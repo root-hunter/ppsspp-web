@@ -44,8 +44,9 @@ current tab; it is not a save state and does not survive reloading or closing it
 Library has one focusable tile per game. Select it to open the game details and
 Play; startup preload, Drive upload and deletion live under Game options. Add
 game imports local files, including ZIP archives. Library options contains the emulator start action,
-URL download and refresh. Search filters titles and filenames; sorting uses the
-game title or file size. Reloading a collection preserves the focused tile.
+URL download and refresh. Search filters the full collection by title/filename; sorting uses the game title
+or file size. Both the library and demo catalog use twelve items per page and the
+same paging controls. Reloading a collection preserves the focused tile.
 
 Icons and titles come from embedded ISO/PBP metadata. Unsupported formats or
 missing artwork use a PSP placeholder. No cover images are fetched externally.
@@ -76,7 +77,9 @@ without reloading the page. Multiplayer changes are applied by Save settings.
 | Previous / next section | LB / RB (L1 / R1) | Focus a section and press Enter |
 | Native PPSSPP menu | PS / Guide, short press | Escape during gameplay |
 | Open dashboard | Hold PS / Guide for 650 ms | — |
-| Open / close dashboard | L3 + R3 together | F1 |
+| Open dashboard during gameplay | L3 + R3 together | F1 |
+| Previous / next collection page | L3 / R3 click (on release) | Focus Previous / Next and press Enter |
+| Scroll the active page or dialog | Right stick | Wheel / native scrolling |
 | Fullscreen | Y / Triangle in a menu | F10 |
 | Edit a dropdown | Select opens options; D-pad moves; Select applies; Back cancels | Native select keys |
 | Enter text | Select a field to open the on-screen keyboard | Type normally |
@@ -154,8 +157,8 @@ Games → Discover PSP demos loads the 202-entry PlayDreamCreate catalog from
 full catalog even with `?search=...`; title/product-code search and region filters
 run locally. The catalog shows twelve cards per page with All demos / Installed
 views, title/region filters, alphabetical or smallest-first sorting, and accessible
-Previous / Next controls. Filtering resets the page; switching pages focuses the
-first available demo action. Empty, loading and retry states remain explicit.
+Previous / Next controls. Filtering resets the page; switching pages preserves the corresponding card position, clamping to the final
+card when the last page is shorter. Empty, loading and retry states remain explicit.
 Cards use local typographic artwork and offer Install demo, a direct ZIP fallback,
 and Open demo after installation. Installed games persist in OPFS and use the normal
 game details, embedded artwork, preload and emulator workflows.
@@ -250,3 +253,30 @@ A Chrome check with Ape Academy 2 running in the actual WASM core verified a val
 rendered-frame thumbnail before pause, initial focus on the separate Return to
 session button, simulated controller Up/Down/Left/Confirm navigation, session resume,
 and the 390px mobile layout. This does not replace physical controller testing.
+
+
+## Controller collection navigation
+
+Standard-mapped controllers use L3 for the previous collection page and R3 for the
+next. Clicks fire on release once, with no hold repeat; pressing both together in
+the dashboard does not turn pages or close the menu. The L3+R3 dashboard shortcut
+remains available during gameplay. Custom UI bindings assigned to these buttons
+take precedence. Paging is scoped to the focused collection (library or demos),
+or the visible collection when focus is on the header/session controls. Dialogs
+and non-library sections do not turn background collection pages. Page limits do
+not wrap or move focus. The controller footer reports Games / Demos and the current
+page, including on mobile. Pagination buttons are above each grid.
+
+The right stick scrolls the nearest scrollable page, form or dialog with a radial
+dead zone and speed proportional to deflection. It does not change left-stick
+selection directions. When a focused item leaves the viewport during scrolling,
+focus follows a visible control without scrolling back. Input gates stop scrolling
+and page clicks across focus loss, reconnects and dashboard transitions. Right-stick
+axes are read only on standard-mapped controllers, avoiding generic trigger axes.
+Gameplay input remains with SDL while the web UI is closed.
+
+Validation includes shared pagination/filter/sort tests, visible-page-only artwork
+reads, page button edges/chord/custom-binding checks and scroll dead-zone/timing
+checks. A Chrome controller simulation exercised a 35-game library, incomplete
+last pages, selection preservation, full-library search, right-stick scrolling,
+demo paging, modal exclusion and a 390px mobile viewport.

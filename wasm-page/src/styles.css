@@ -559,3 +559,12 @@ button.demo-activity { gap: 7px; border-color: #b0dcd64d; color: var(--accent2);
 .isolation-recovery { padding: 20px; margin-bottom: 24px; border: 1px solid #e8bd7166; border-radius: 12px; background: #e8bd7110; }
 .isolation-recovery > p { margin-block: 10px 16px; max-width: 80ch; color: var(--muted); }
 .isolation-recovery .field-help { margin-bottom: 0; font-size: 12px; }
+
+.collection-pagination { margin-top: 0; margin-bottom: 16px; padding-top: 0; border-top: 0; }
+.collection-pagination kbd { color: var(--accent); font: inherit; font-size: 10px; border: 1px solid var(--border2); border-radius: 4px; padding: 1px 4px; }
+@media (max-width: 700px) { .hint-pages, .hint-scroll { display: none !important; } }
+
+@media (max-width: 700px) {
+  body.console-controller .console-hints > .hint-pages:not([hidden]) { display: inline-flex !important; margin-left: auto; }
+  body.console-controller .console-hints:has(.hint-pages:not([hidden])) > span:is(:first-child, :nth-child(4)) { display: none; }
+}

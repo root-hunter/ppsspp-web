@@ -86,3 +86,13 @@ test('extraction reports real uncompressed byte progress before and after verify
   assert.equal(events.at(-1).total, 43);
   assert(events.every((event, i) => !i || event.completed >= events[i - 1].completed));
 });
+
+test('shared pagination clamps short final pages and resets invalid inputs', () => {
+  const records = Array.from({length: 25}, (_, id) => id);
+  const last = api.paginate(records, 9);
+  assert.equal(last.page, 3); assert.equal(last.pages, 3); assert.equal(last.records.length, 1);
+  assert.equal(last.records[0], 24);
+  assert.equal(api.paginate(records, -1).page, 1);
+  assert.equal(api.paginate([], 20).page, 1);
+  assert.equal(api.paginate([], 20).first, 0);
+});

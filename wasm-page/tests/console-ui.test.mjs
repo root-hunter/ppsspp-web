@@ -240,3 +240,39 @@ test('a hidden or disabled session action leaves ordinary controller navigation 
   const ctx = await navigationFunctions(['sessionNavigationTarget'], {});
   assert.equal(ctx.sessionNavigationTarget(first, [first, next], 'right'), null);
 });
+
+test('L3/R3 change pages only on release, never repeat, and simultaneous clicks do not close the dashboard', () => {
+  const {samplePageButtons: sample} = context.window.PPSSPPConsoleNavigation;
+  const standard = buttons => ({...pad(buttons), mapping: 'standard'});
+  const state = {};
+  assert.deepEqual([...sample(state, standard([11]), undefined, true)], []);
+  assert.deepEqual([...sample(state, standard([11]), undefined, true)], []);
+  assert.deepEqual([...sample(state, standard([]), undefined, true)], ['page-next']);
+  assert.deepEqual([...sample(state, standard([]), undefined, true)], []);
+  sample(state, standard([10]), undefined, true);
+  assert.deepEqual([...sample(state, standard([]), undefined, true)], ['page-previous']);
+  sample(state, standard([10]), undefined, true);
+  sample(state, standard([10, 11]), undefined, true);
+  assert.deepEqual([...readActions(standard([10, 11]), undefined, undefined, true)], []);
+  assert.deepEqual([...sample(state, standard([11]), undefined, true)], []);
+  assert.deepEqual([...sample(state, standard([]), undefined, true)], []);
+  assert.deepEqual([...readActions(standard([10, 11]))], ['menu']);
+});
+test('page clicks respect custom bindings and do not leak from gameplay into the dashboard', () => {
+  const {samplePageButtons: sample} = context.window.PPSSPPConsoleNavigation;
+  const state = {}, standard = buttons => ({...pad(buttons), mapping: 'standard'});
+  sample(state, standard([10]), {confirm: 10}, true);
+  assert.deepEqual([...sample(state, standard([]), {confirm: 10}, true)], []);
+  sample(state, standard([11]), undefined, false);
+  assert.deepEqual([...sample(state, standard([]), undefined, true)], []);
+});
+test('right-stick scrolling has a dead zone, proportional speed, bounded delta and no generic trigger scrolling', () => {
+  const {rightStickScroll: scroll} = context.window.PPSSPPConsoleNavigation;
+  const stick = (x, y) => ({...pad([], [0, 0, x, y]), mapping: 'standard'});
+  assert.equal(scroll(stick(.1, .2), 16).y, 0);
+  assert(scroll(stick(0, 1), 16).y > scroll(stick(0, .6), 16).y);
+  assert.equal(scroll(stick(0, 1), 10000).y, 55);
+  assert.equal(scroll(stick(0, -1), 16).y, -17.6);
+  assert.equal(scroll(pad([], [0, 0, -1, -1]), 16).x, 0);
+  assert.equal(scroll(stick(0, 1), 0).y, 0);
+});

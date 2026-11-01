@@ -1473,7 +1473,8 @@ async function ensureGameMetadata(name) {
   }
 }
 
-let libraryRenderVersion = 0;
+let libraryRenderVersion = 0, libraryPageRenderVersion = 0, libraryPage = 1;
+let libraryRecords = [], libraryPages = 1;
 function gamePlaceholder() { return '<span class="game-placeholder"><img src="images/ppsspp-icon.png" alt=""><span>PSP</span></span>'; }
 function replaceCollectionContent(container, html) {
   const key = container.contains(document.activeElement) ? document.activeElement.closest("[data-focus-key]")?.dataset.focusKey : null;
@@ -1481,23 +1482,65 @@ function replaceCollectionContent(container, html) {
   if (key) [...container.querySelectorAll("[data-focus-key]")].find(el => el.dataset.focusKey === key)?.focus({ preventScroll: true });
 }
 function filterCollection(kind) {
-  const container = byId(kind === "library" ? "libraryGrid" : "savesList");
-  const query = (byId(kind === "library" ? "librarySearch" : "savesSearch")?.value || "").toLocaleLowerCase().trim();
+  if (kind === "library") { libraryPage = 1; void renderLibraryPage(); return; }
+  const container = byId("savesList");
+  const query = (byId("savesSearch")?.value || "").toLocaleLowerCase().trim();
   let visible = 0;
   for (const tile of container?.querySelectorAll(".collection-tile") || []) {
     tile.hidden = !tile.dataset.search.includes(query);
     if (!tile.hidden) visible++;
   }
-  const empty = byId(kind === "library" ? "libraryEmpty" : "savesEmpty");
+  const empty = byId("savesEmpty");
   const total = container?.querySelectorAll(".collection-tile").length || 0;
   if (total) { empty.style.display = visible ? "none" : "block"; empty.textContent = "No results for “" + query + "”."; }
-  const selection = byId(kind === "library" ? "librarySelection" : "savesSelection");
+  const selection = byId("savesSelection");
   if (selection) selection.textContent = "";
+}
+async function renderLibraryPage() {
+  const grid = byId("libraryGrid"), empty = byId("libraryEmpty");
+  if (!grid || !empty) return;
+  const version = ++libraryPageRenderVersion, urls = [];
+  const query = (byId("librarySearch")?.value || "").toLocaleLowerCase().trim();
+  const sort = byId("librarySort")?.value;
+  const matches = libraryRecords.filter(g => (g.title + " " + g.path).toLocaleLowerCase().includes(query));
+  matches.sort((a, b) => sort === "size" ? b.size - a.size || a.title.localeCompare(b.title) : (sort === "title-desc" ? -1 : 1) * a.title.localeCompare(b.title));
+  const page = window.PPSSPPDemos.paginate(matches, libraryPage);
+  libraryPage = page.page; libraryPages = page.pages;
+  grid.setAttribute("aria-busy", "true");
+  try {
+    const records = await Promise.all(page.records.map(async game => {
+      const cover = await readGameCoverURL(game.path, game.coverType);
+      if (cover) urls.push(cover);
+      return { ...game, cover };
+    }));
+    if (version !== libraryPageRenderVersion) { urls.forEach(url => URL.revokeObjectURL(url)); return; }
+    replaceCollectionContent(grid, records.map(game => {
+      const title = esc(game.title), name = esc(game.path);
+      return `<button type="button" class="collection-tile" data-action="info" data-game="${name}" data-focus-key="${name}" data-search="${esc((game.title + " " + game.path).toLocaleLowerCase())}" data-description="${esc(game.title + " · " + game.format + " · " + formatBytes(game.size || 0))}" aria-label="Open ${title}">
+        <span class="tile-art">${game.cover ? `<img src="${game.cover}" alt="" loading="lazy">` : gamePlaceholder()}${game.preload ? '<span class="tile-tag">Preload</span>' : ''}</span>
+        <span class="tile-body"><span class="tile-title">${title}</span><span class="tile-meta">${esc(game.format)} · ${formatBytes(game.size || 0)}</span></span>
+      </button>`;
+    }).join(""));
+    clearLibraryCoverURLs(); _libraryCoverURLs = urls;
+    grid.style.display = records.length ? "grid" : "none";
+    empty.style.display = records.length ? "none" : "block";
+    empty.textContent = libraryRecords.length ? "No results for “" + query + "”." : "No games. Add a PSP game or ZIP, or browse the demos below.";
+    byId("libraryPagination").hidden = page.pages < 2;
+    byId("libraryPrevBtn").disabled = page.page <= 1;
+    byId("libraryNextBtn").disabled = page.page >= page.pages;
+    byId("libraryPageLabel").textContent = "Page " + page.page + " of " + page.pages + " · " + page.first + "–" + page.last + " of " + page.total;
+    byId("librarySelection").textContent = "";
+    updateCollectionPageStatus();
+  } catch (e) {
+    urls.forEach(url => URL.revokeObjectURL(url));
+    if (version === libraryPageRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not display games: " + e.message; }
+  } finally { if (version === libraryPageRenderVersion) grid.removeAttribute("aria-busy"); }
 }
 async function refreshLibrary() {
   const grid = byId("libraryGrid"), empty = byId("libraryEmpty"), count = byId("libraryCount");
   if (!grid || !empty) return;
-  const version = ++libraryRenderVersion, urls = [];
+  const version = ++libraryRenderVersion;
+  ++libraryPageRenderVersion;
   grid.setAttribute("aria-busy", "true");
   if (!grid.children.length) { empty.style.display = "block"; empty.textContent = "Loading games…"; }
   try {
@@ -1507,31 +1550,57 @@ async function refreshLibrary() {
     const favorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
     const records = [];
     for (const game of games) {
-      if (version !== libraryRenderVersion) { urls.forEach(url => URL.revokeObjectURL(url)); return; }
+      if (version !== libraryRenderVersion) return;
       const meta = await ensureGameMetadata(game.path);
-      const cover = await readGameCoverURL(game.path, meta.coverType);
-      if (cover) urls.push(cover);
-      records.push({ ...game, title: meta.title || prettyGameName(game.path), format: meta.format || "PSP", cover });
+      records.push({ ...game, title: meta.title || prettyGameName(game.path), format: meta.format || "PSP", coverType: meta.coverType, preload: favorites.has(game.path) });
     }
-    if (version !== libraryRenderVersion) { urls.forEach(url => URL.revokeObjectURL(url)); return; }
-    const sort = byId("librarySort")?.value;
-    records.sort((a, b) => sort === "size" ? b.size - a.size || a.title.localeCompare(b.title) : (sort === "title-desc" ? -1 : 1) * a.title.localeCompare(b.title));
-    const html = records.map(game => {
-      const title = esc(game.title), name = esc(game.path);
-      return `<button type="button" class="collection-tile" data-action="info" data-game="${name}" data-focus-key="${name}" data-search="${esc((game.title + " " + game.path).toLocaleLowerCase())}" data-description="${esc(game.title + " · " + game.format + " · " + formatBytes(game.size || 0))}" aria-label="Open ${title}">
-        <span class="tile-art">${game.cover ? `<img src="${game.cover}" alt="" loading="lazy">` : gamePlaceholder()}${favorites.has(game.path) ? '<span class="tile-tag">Preload</span>' : ''}</span>
-        <span class="tile-body"><span class="tile-title">${title}</span><span class="tile-meta">${esc(game.format)} · ${formatBytes(game.size || 0)}</span></span>
-      </button>`;
-    }).join("");
-    replaceCollectionContent(grid, html);
-    clearLibraryCoverURLs(); _libraryCoverURLs = urls;
-    grid.style.display = records.length ? "grid" : "none";
-    empty.style.display = records.length ? "none" : "block";
-    empty.textContent = "No games. Add a PSP game or ZIP, or browse the demos below.";
+    if (version !== libraryRenderVersion) return;
+    libraryRecords = records;
     if (count) count.textContent = records.length + (records.length === 1 ? " game" : " games");
-    filterCollection("library");
-  } catch (e) { if (version === libraryRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not read games: " + e.message; } urls.forEach(url => URL.revokeObjectURL(url)); }
-  finally { if (version === libraryRenderVersion) grid.removeAttribute("aria-busy"); }
+    await renderLibraryPage();
+  } catch (e) { if (version === libraryRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not read games: " + e.message; grid.removeAttribute("aria-busy"); } }
+}
+function collectionFocusIndex(grid) {
+  const card = document.activeElement?.closest(".collection-tile, .demo-card");
+  return Math.max(0, [...grid.querySelectorAll(".collection-tile, .demo-card")].indexOf(card));
+}
+function focusCollectionPage(grid, index) {
+  const cards = [...grid.querySelectorAll(".collection-tile, .demo-card")];
+  const card = cards[Math.min(index, cards.length - 1)];
+  const target = card?.matches(".collection-tile") ? card : card?.querySelector("button:not(:disabled), a[href]");
+  target?.focus({ preventScroll: true });
+  target?.scrollIntoView({ block: "nearest", behavior: "instant" });
+}
+async function changeLibraryPage(delta) {
+  const next = Math.min(libraryPages, Math.max(1, libraryPage + delta));
+  if (next === libraryPage) return false;
+  const grid = byId("libraryGrid"), index = collectionFocusIndex(grid);
+  libraryPage = next;
+  await renderLibraryPage();
+  if (libraryPage === next) focusCollectionPage(grid, index);
+  return true;
+}
+function activeCollectionKind() {
+  const origin = document.activeElement;
+  if (origin?.closest("#demoSection")) return "demo";
+  if (origin?.closest("#libraryPanel")) return "library";
+  const viewport = byId("tabLibrary").getBoundingClientRect();
+  const overlap = id => { const r = byId(id).getBoundingClientRect(); return Math.max(0, Math.min(r.bottom, viewport.bottom) - Math.max(r.top, viewport.top)); };
+  return overlap("demoGrid") > overlap("libraryGrid") ? "demo" : "library";
+}
+function updateCollectionPageStatus() {
+  const label = byId("controllerPageStatus");
+  if (!label) return;
+  const hint = label.parentElement;
+  if (!byId("tabLibrary")?.classList.contains("active") || byId("gameInfoModal")?.classList.contains("visible") || byId("saveInfoModal")?.classList.contains("visible")) { hint.hidden = true; return; }
+  const kind = activeCollectionKind(), demo = kind === "demo";
+  const pages = demo ? demoPages : libraryPages, page = demo ? demoPage : libraryPage;
+  hint.hidden = pages < 2;
+  label.textContent = (demo ? "Demos " : "Games ") + page + " / " + pages;
+}
+function changeActiveCollectionPage(delta) {
+  if (!byId("tabLibrary")?.classList.contains("active")) return false;
+  return activeCollectionKind() === "demo" ? changeDemoPage(delta) : changeLibraryPage(delta);
 }
 
 /* Demo installs keep EBOOT companions together, outside the flat game index. */
@@ -1580,14 +1649,14 @@ async function mountStoredGamePackage(FS, name) {
 }
 
 let demoCatalog = [], demoInstalled = new Set(), demoAbort = null, demoBusy = false;
-let demoPage = 1, demoInstalledOnly = false, demoCatalogState = "idle", demoTransfer = null;
+let demoPage = 1, demoPages = 1, demoInstalledOnly = false, demoCatalogState = "idle", demoTransfer = null;
 function renderDemos() {
   const grid = byId("demoGrid");
   if (!grid) return;
   const query = byId("demoSearch")?.value || "", region = byId("demoRegion")?.value || "";
   const sort = byId("demoSort")?.value || "title";
   const result = window.PPSSPPDemos.browse(demoCatalog, demoInstalled, { query, region, sort, installedOnly: demoInstalledOnly, page: demoPage });
-  demoPage = result.page;
+  demoPage = result.page; demoPages = result.pages;
   const installedCount = demoCatalog.filter(d => demoInstalled.has(d.name)).length;
   byId("demoTotalCount").textContent = demoCatalog.length || "—";
   byId("demoInstalledCount").textContent = installedCount;
@@ -1623,6 +1692,7 @@ function renderDemos() {
       </article>`;
     }).join(""));
   }
+  updateCollectionPageStatus();
   byId("demoPagination").hidden = result.pages < 2;
   byId("demoPageLabel").textContent = "Page " + result.page + " of " + result.pages;
   byId("demoPrevBtn").disabled = result.page <= 1;
@@ -1635,10 +1705,15 @@ function resetDemoFilters() {
   demoInstalledOnly = false; filterDemos();
 }
 function changeDemoPage(delta) {
-  demoPage += delta; renderDemos();
-  const first = byId("demoGrid").querySelector("button:not(:disabled), a");
-  first?.focus({ preventScroll: true });
-  first?.scrollIntoView({ block: "nearest", behavior: "instant" });
+  const pages = window.PPSSPPDemos.browse(demoCatalog, demoInstalled, {
+    query: byId("demoSearch")?.value, region: byId("demoRegion")?.value,
+    sort: byId("demoSort")?.value, installedOnly: demoInstalledOnly,
+  }).pages;
+  const next = Math.min(pages, Math.max(1, demoPage + delta));
+  if (next === demoPage) return false;
+  const grid = byId("demoGrid"), index = collectionFocusIndex(grid);
+  demoPage = next; renderDemos(); focusCollectionPage(grid, index);
+  return true;
 }
 async function loadDemoCatalog() {
   const button = byId("demoLoadBtn");
@@ -4991,6 +5066,7 @@ function activatePanelTab(tabName) {
   if (name === "saves") refreshSavesTab();
   if (name === "drive") initDriveConfigUI();
   if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
+  updateCollectionPageStatus();
 }
 
 document.querySelectorAll(".tab").forEach(tab => {
@@ -5363,6 +5439,10 @@ on("demoRetryBtn", "click", () => { if (demoTransfer) downloadDemo(demoTransfer.
 on("demoOpenBtn", "click", () => { if (demoTransfer?.name) showGameInfo(demoTransfer.name); });
 on("demoCancelBtn", "click", () => { if (demoAbort) { const focusAfterCancel = document.activeElement === byId("demoCancelBtn"); updateDemoTransfer({ cancelling: true, focusAfterCancel, detail: "Stopping the download…" }, true); demoAbort.abort(); } });
 on("demoGrid", "click", event => { const button = event.target.closest("button[data-demo]"); if (button) downloadDemo(button.dataset.demo); });
+document.addEventListener("focusin", updateCollectionPageStatus);
+on("tabLibrary", "scroll", updateCollectionPageStatus);
+on("libraryPrevBtn", "click", () => changeLibraryPage(-1));
+on("libraryNextBtn", "click", () => changeLibraryPage(1));
 on("refreshLibraryBtn", "click", refreshLibrary);
 on("libraryGrid", "click", e => {
   const button = e.target.closest("button[data-action]");
@@ -5753,6 +5833,7 @@ if ("serviceWorker" in navigator) {
 window.PPSSPPConsole = {
   nativeMenu: openNativeMenu, setOpen: setPanelOpen, setMenuOpen: setFullscreenMenuOpen, switchTab: activatePanelTab, fullscreen: togglePPSSPPFullscreen, closeGameInfo, closeSaveInfo,
   getGamepads: () => { try { return Array.from(nativeGetGamepads?.() || []); } catch (_) { return []; } },
+  page: changeActiveCollectionPage,
   notify: showToast,
 };
 
@@ -5762,7 +5843,7 @@ for (const [kind, gridId, inputId] of [["library", "libraryGrid", "librarySearch
   const select = event => { const tile = event.target.closest(".collection-tile"); if (tile) byId(kind === "library" ? "librarySelection" : "savesSelection").textContent = tile.dataset.description; };
   on(gridId, "focusin", select); on(gridId, "pointerover", select);
 }
-on("librarySort", "change", refreshLibrary);
+on("librarySort", "change", () => { libraryPage = 1; void renderLibraryPage(); });
 
 on("opfsFileList", "click", event => {
   const button = event.target.closest("button[data-storage-action]");

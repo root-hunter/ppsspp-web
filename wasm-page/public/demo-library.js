@@ -111,11 +111,14 @@
     matches.sort((a, b) => options.sort === 'size'
       ? (a.fileSizeBytes || 0) - (b.fileSizeBytes || 0) || a.title.localeCompare(b.title)
       : (options.sort === 'title-desc' ? -1 : 1) * a.title.localeCompare(b.title));
-    const pageSize = Math.max(1, options.pageSize || 12);
-    const pages = Math.max(1, Math.ceil(matches.length / pageSize));
-    const page = Math.min(pages, Math.max(1, options.page || 1));
-    return { records: matches.slice((page - 1) * pageSize, page * pageSize), total: matches.length, page, pages,
-      first: matches.length ? (page - 1) * pageSize + 1 : 0, last: Math.min(page * pageSize, matches.length) };
+    return paginate(matches, options.page, options.pageSize);
+  }
+  function paginate(records, requestedPage = 1, requestedSize = 12) {
+    const pageSize = Math.max(1, Math.floor(Number(requestedSize) || 12));
+    const pages = Math.max(1, Math.ceil(records.length / pageSize));
+    const page = Math.min(pages, Math.max(1, Math.floor(Number(requestedPage) || 1)));
+    return { records: records.slice((page - 1) * pageSize, page * pageSize), total: records.length, page, pages,
+      first: records.length ? (page - 1) * pageSize + 1 : 0, last: Math.min(page * pageSize, records.length) };
   }
   function transferMetrics(received, total, started, now) {
     const elapsed = Math.max(0, (now - started) / 1000);
@@ -123,5 +126,5 @@
     return { percent: total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null,
       speed, remaining: total > received && speed > 0 ? Math.ceil((total - received) / speed) : null };
   }
-  globalThis.PPSSPPDemos = { catalog, unzip, packages, safePath, crc32, browse, transferMetrics };
+  globalThis.PPSSPPDemos = { catalog, unzip, packages, safePath, crc32, browse, paginate, transferMetrics };
 })();

@@ -106,6 +106,7 @@
             </div></details>
           </div>
           <div id="libraryEmpty" class="collection-empty" role="status">No games. Add a PSP game or ZIP, or browse the demos below.</div>
+          <nav id="libraryPagination" class="collection-pagination demo-pagination" aria-label="Game library pages" hidden><button id="libraryPrevBtn" type="button" aria-label="Previous game page" aria-controls="libraryGrid"><kbd>L3</kbd> Previous</button><span id="libraryPageLabel" role="status" aria-live="polite"></span><button id="libraryNextBtn" type="button" aria-label="Next game page" aria-controls="libraryGrid">Next <kbd>R3</kbd></button></nav>
           <div id="libraryGrid" class="collection-grid" aria-label="Games" style="display:none"></div>
           <div id="librarySelection" class="collection-selection" aria-live="polite"></div>
           <section id="demoSection" class="demo-section" aria-labelledby="demoHeading">
@@ -125,8 +126,8 @@
             </div>
             <div class="demo-results-heading"><p id="demoStatus" role="status" aria-live="polite">Browse the PlayDreamCreate catalog.</p><button id="demoResetBtn" type="button" class="demo-text-button" hidden>Clear filters</button></div>
             <div id="demoEmpty" class="demo-empty"><i data-lucide="gamepad-2"></i><h3 id="demoEmptyTitle">PSP demo archive</h3><p id="demoEmptyDetail">Select Browse demos to load the catalog.</p></div>
+            <nav id="demoPagination" class="collection-pagination demo-pagination" aria-label="Demo catalog pages" hidden><button id="demoPrevBtn" type="button" aria-controls="demoGrid"><kbd>L3</kbd> Previous</button><span id="demoPageLabel" role="status" aria-live="polite"></span><button id="demoNextBtn" type="button" aria-controls="demoGrid">Next <kbd>R3</kbd></button></nav>
             <div id="demoGrid" class="demo-grid" aria-label="PSP demos"></div>
-            <nav id="demoPagination" class="demo-pagination" aria-label="Demo catalog pages" hidden><button id="demoPrevBtn" type="button" aria-controls="demoGrid">← Previous</button><span id="demoPageLabel"></span><button id="demoNextBtn" type="button" aria-controls="demoGrid">Next →</button></nav>
             <p class="demo-source">Catalog by <a href="https://playdreamcreate.com/" target="_blank" rel="noopener noreferrer">PlayDreamCreate <i data-lucide="external-link"></i></a><span>ZIP files are installed automatically.</span></p>
             <p id="demoFallback" class="field-help" hidden>Direct installation requires the PPSSPP Web server. You can also download a ZIP and import it with Add game.</p>
           </section>
@@ -411,7 +412,7 @@
           <button id="clearLogBtn" title="Clear"><i data-lucide="trash-2"></i></button>
         </div>
       </div>
-      <footer class="console-hints"><span><kbd>↔ ↕</kbd> Navigate</span><span><kbd>A / ×</kbd> Select</span><span><kbd>B / ○</kbd> Back</span><span><kbd>LB / RB</kbd> Sections</span><span class="hint-menu"><kbd>PS</kbd> Menu · hold for web</span><span class="hint-fullscreen"><kbd>Y / △</kbd> Fullscreen</span><span id="consoleInputStatus" role="status">Keyboard · Mouse · Touch</span></footer>
+      <footer class="console-hints"><span><kbd>↔ ↕</kbd> Navigate</span><span><kbd>A / ×</kbd> Select</span><span><kbd>B / ○</kbd> Back</span><span><kbd>LB / RB</kbd> Sections</span><span class="hint-pages" hidden><kbd>L3 / R3</kbd> <span id="controllerPageStatus">Pages</span></span><span class="hint-scroll"><kbd>R stick</kbd> Scroll</span><span class="hint-menu"><kbd>PS</kbd> Menu · hold for web</span><span class="hint-fullscreen"><kbd>Y / △</kbd> Fullscreen</span><span id="consoleInputStatus" role="status">Keyboard · Mouse · Touch</span></footer>
     </section>
 
   <div id="toast" role="status"></div>

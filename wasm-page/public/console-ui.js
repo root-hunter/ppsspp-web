@@ -3,7 +3,7 @@
   const defaults = { up: 12, down: 13, left: 14, right: 15, confirm: 0, back: 1, previous: 4, next: 5, fullscreen: 3 };
   const directions = ['up', 'down', 'left', 'right'];
   const pressed = (pad, index) => !!pad.buttons[index]?.pressed || pad.buttons[index]?.value > 0.5;
-  function readActions(pad, mapping = defaults, previous = new Set()) {
+  function readActions(pad, mapping = defaults, previous = new Set(), dashboard = false) {
     const result = new Set();
     for (const [action, index] of Object.entries(mapping)) if (!(pad.mapping === 'standard' && index === 16) && pressed(pad, index)) result.add(action);
     // A little hysteresis prevents drift around the activation threshold.
@@ -11,8 +11,30 @@
       if ((pad.axes[axis] || 0) * sign > (previous.has(action) ? 0.35 : 0.55)) result.add(action);
     }
     if (mapping.fullscreen === undefined && !Object.values(mapping).includes(3) && pressed(pad, 3)) result.add('fullscreen');
-    if (mapping.menu === undefined && pressed(pad, 10) && pressed(pad, 11)) result.add('menu');
+    if (!dashboard && mapping.menu === undefined && pressed(pad, 10) && pressed(pad, 11)) result.add('menu');
     return result;
+  }
+  function samplePageButtons(state, pad, mapping = defaults, dashboard = false) {
+    if (!dashboard || pad.mapping !== 'standard') { delete state.pageClicks; return []; }
+    const assigned = Object.values(mapping);
+    const left = !assigned.includes(10) && pressed(pad, 10);
+    const right = !assigned.includes(11) && pressed(pad, 11);
+    const prior = state.pageClicks || { left: false, right: false, chord: false };
+    const chord = prior.chord || (left && right);
+    const events = [];
+    if (!chord && prior.left && !left && !right) events.push('page-previous');
+    if (!chord && prior.right && !right && !left) events.push('page-next');
+    state.pageClicks = { left, right, chord: (left || right) && chord };
+    return events;
+  }
+  function rightStickScroll(pad, elapsedMs) {
+    if (pad.mapping !== 'standard') return { x: 0, y: 0 };
+    const x = Number.isFinite(pad.axes[2]) ? pad.axes[2] : 0;
+    const y = Number.isFinite(pad.axes[3]) ? pad.axes[3] : 0;
+    const magnitude = Math.hypot(x, y);
+    if (magnitude <= .3) return { x: 0, y: 0 };
+    const distance = Math.pow((Math.min(1, magnitude) - .3) / .7, 1.5) * 1100 * Math.min(50, Math.max(0, elapsedMs)) / 1000;
+    return { x: x / magnitude * distance, y: y / magnitude * distance };
   }
   function neutral(pad) {
     return !pad.buttons.some(b => b.pressed || b.value > 0.5) && !pad.axes.slice(0, pad.mapping === 'standard' ? 4 : 2).some(a => Math.abs(a) > 0.35);
@@ -62,7 +84,7 @@
     return best;
   }
   // Also exposed for deterministic regression tests without starting a browser.
-  window.PPSSPPConsoleNavigation = { readActions, sampleActions, sampleGuideButton, spatialTarget, neutral, defaults };
+  window.PPSSPPConsoleNavigation = { readActions, sampleActions, sampleGuideButton, samplePageButtons, rightStickScroll, spatialTarget, neutral, defaults };
   if (!window.PPSSPPConsole) return;
   const bridge = window.PPSSPPConsole;
   const byId = id => document.getElementById(id);
@@ -174,6 +196,39 @@
     if (!current) return;
     const target = sessionNavigationTarget(current, list, direction) || spatialTarget(current.getBoundingClientRect(), list.filter(el => el !== current).map(element => ({ element, rect: element.getBoundingClientRect() })), direction);
     if (target) focus(target);
+  }
+  function scrollControllerPage(pad, elapsedMs) {
+    const movement = rightStickScroll(pad, elapsedMs);
+    if (!movement.x && !movement.y) return;
+    const container = root(), current = document.activeElement;
+    const canScroll = el => {
+      const style = getComputedStyle(el);
+      return (movement.y && /auto|scroll/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1)
+        || (movement.x && /auto|scroll/.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1);
+    };
+    let scroller = current;
+    while (scroller && container.contains(scroller) && !canScroll(scroller)) scroller = scroller.parentElement;
+    if (!scroller || !container.contains(scroller)) {
+      const candidates = container === byId('sidePanel') ? [byId('logPanel'), container.querySelector('.tab-panel.active')]
+        : [container.querySelector('.console-dialog-card, .game-info-dialog, .save-info-dialog'), container];
+      scroller = candidates.find(el => el && visible(el) && canScroll(el));
+    }
+    if (!scroller) return;
+    const before = scroller.scrollTop;
+    scroller.scrollTop += movement.y;
+    scroller.scrollLeft += movement.x;
+    if (scroller.scrollTop === before || !scroller.contains(current)) return;
+    const viewport = scroller.getBoundingClientRect(), rect = current.getBoundingClientRect();
+    if (rect.bottom > viewport.top + 8 && rect.top < viewport.bottom - 8) return;
+    const candidates = controls().filter(el => {
+      if (!scroller.contains(el)) return false;
+      const r = el.getBoundingClientRect();
+      return r.bottom > viewport.top + 8 && r.top < viewport.bottom - 8;
+    });
+    const x = rect.left + rect.width / 2, y = Math.max(viewport.top + 8, Math.min(viewport.bottom - 8, rect.top + rect.height / 2));
+    const distance = el => { const r = el.getBoundingClientRect(); return Math.hypot(r.left + r.width / 2 - x, r.top + r.height / 2 - y); };
+    const target = candidates.reduce((best, el) => !best || distance(el) < distance(best) ? el : best, null);
+    if (target) { target.focus({ preventScroll: true }); rememberFocus(target); }
   }
   function closeDialog(commit = false) {
     if (commit && editTarget) {
@@ -303,6 +358,10 @@
     if (name === 'fullscreen') { if (uiOpen() && !dialog) void bridge.fullscreen(); return; }
     if (name === 'menu') { if (dialog) back(); else bridge.setOpen(!body.classList.contains('panel-open')); return; }
     if (!uiOpen()) return;
+    if (name === 'page-previous' || name === 'page-next') {
+      if (!dialog && root() === byId('sidePanel')) void bridge.page?.(name === 'page-previous' ? -1 : 1);
+      return;
+    }
     if (directions.includes(name)) navigate(name);
     else if (name === 'confirm') activate();
     else if (name === 'back') back();
@@ -392,13 +451,19 @@
       const mapping = saved && typeof saved === 'object' ? saved : defaults;
       if (!state) {
         // New/reconnected devices must first release controls to avoid accidental actions.
-        states.set(pad.index, { id: pad.id, held: new Set(), repeat: new Map(), ready: neutral(pad) }); continue;
+        states.set(pad.index, { id: pad.id, held: new Set(), repeat: new Map(), ready: neutral(pad), lastPoll: now }); continue;
       }
       if (state.id !== pad.id) { states.delete(pad.index); continue; }
       if (!state.ready) { state.ready = neutral(pad); continue; }
-      const events = sampleActions(state, readActions(pad, mapping, state.held), now);
+      const elapsed = now - (state.lastPoll ?? now); state.lastPoll = now;
+      const dashboard = uiOpen();
+      const input = readActions(pad, mapping, state.held, dashboard);
       const guide = sampleGuideButton(state, pad.mapping === 'standard' && pressed(pad, 16), now);
+      if (releaseGate) { state.held = input; state.repeat.clear(); delete state.pageClicks; continue; }
+      const events = sampleActions(state, input, now);
+      events.push(...samplePageButtons(state, pad, mapping, dashboard));
       if (guide) events.push(guide);
+      if (dashboard) scrollControllerPage(pad, elapsed);
       for (const name of events) {
         byId('consoleInputStatus').textContent = (pad.mapping === 'standard' ? 'Controller' : mappings[pad.id] ? 'Custom controller' : 'Generic · configure in System') + ' · connected';
         action(name);

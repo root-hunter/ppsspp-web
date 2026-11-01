@@ -978,3 +978,28 @@ test('session artwork owns its URL and ignores stale asynchronous game changes',
   assert.equal(byId('sessionArtwork').hidden, false);
   assert.deepEqual(revoked, ['blob:old.pbp', 'blob:previous']);
 });
+
+test('library pagination filters and sorts the full collection and reads artwork only for the visible page', async () => {
+  const demoTools = vm.createContext({URL});
+  vm.runInContext(readFileSync(new URL('../public/demo-library.js', import.meta.url), 'utf8'), demoTools);
+  const elements = new Map(), covers = [], rendered = [];
+  const byId = id => {if (!elements.has(id)) elements.set(id, {style: {}, value: '', setAttribute() {}, removeAttribute() {}}); return elements.get(id);};
+  const ctx = load(['renderLibraryPage', 'gamePlaceholder'], {
+    window: {PPSSPPDemos: demoTools.PPSSPPDemos}, byId,
+    libraryPageRenderVersion: 0, libraryPage: 2, libraryPages: 1,
+    libraryRecords: Array.from({length: 35}, (_, i) => ({title: 'Game ' + String(i).padStart(2, '0'), path: i + '.pbp', format: 'PBP', size: i})),
+    readGameCoverURL: async name => {covers.push(name); return '';}, clearLibraryCoverURLs() {},
+    replaceCollectionContent: (_, html) => rendered.push(html), updateCollectionPageStatus() {}, _libraryCoverURLs: [],
+    esc: String, formatBytes: String,
+  });
+  await ctx.renderLibraryPage();
+  assert.equal(ctx.libraryPages, 3); assert.equal(covers.length, 12);
+  assert.match(rendered[0], /Game 12/); assert.doesNotMatch(rendered[0], /Game 00/);
+  byId('librarySearch').value = 'Game 34';
+  await ctx.renderLibraryPage();
+  assert.equal(ctx.libraryPage, 1); assert.equal(ctx.libraryPages, 1);
+  assert.match(rendered.at(-1), /Game 34/);
+  byId('librarySearch').value = ''; byId('librarySort').value = 'size';
+  await ctx.renderLibraryPage();
+  assert(rendered.at(-1).indexOf('Game 34') < rendered.at(-1).indexOf('Game 33'));
+});
