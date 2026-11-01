@@ -354,16 +354,12 @@ const loadLabel       = byId("loadLabel");
   .filter(Boolean)
   .forEach(input => { input.accept = GAME_FILE_ACCEPT; });
 const progressBar     = byId("progressBar");
-const idleOverlay     = byId("idleOverlay");
-const idleSubtitle    = byId("idleSubtitle");
-const idleStartBtn    = byId("idleStartBtn");
 const fpsBadge        = byId("fpsBadge");
 const gpuBadge        = byId("gpuBadge");
 const gamepadBadge    = byId("gamepadBadge");
 const gamepadSelect   = byId("gamepadSelect");
 const gpuSelectEl     = byId("gpuSelect");
 const panelToggleBtn  = byId("panelToggleBtn");
-const panelTabSelect  = byId("panelTabSelect");
 const googleClientIdInput = byId("googleClientIdInput");
 const driveAuthEl     = byId("iDriveAuth");
 const driveFolderEl   = byId("iDriveFolder");
@@ -385,28 +381,34 @@ const networkTestBtn      = byId("networkTestBtn");
 const networkSaveBtn      = byId("networkSaveBtn");
 const networkActivityEl   = byId("networkActivity");
 
-// Panel toggle (hidden by default; restore from localStorage)
-const PANEL_KEY = "ppsspp_panel_open";
+// Full-screen console dashboard; retain legacy IDs for runtime integrations.
 function setPanelOpen(open, focus = true) {
+  if (!open && !document.body.classList.contains("emulator-started")) open = true;
   document.body.classList.toggle("panel-open", open);
   if (open) setFullscreenMenuOpen(false, false);
   const stage = document.querySelector(".stage");
   if (stage) stage.inert = open;
-  preferences.setItem(PANEL_KEY, open ? "1" : "0");
   if (open) checkNetworkWhenVisible();
+  document.dispatchEvent(new CustomEvent("consolevisibilitychange", { detail: { open } }));
   for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
   if (focus) {
-    const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsMenuToggle") : panelToggleBtn;
+    const target = open ? document.querySelector(".tab.active") : document.body.classList.contains("emulator-started") ? canvas : panelToggleBtn;
     target?.focus({ preventScroll: true });
   }
+  if (panelToggleBtn) {
+    const label = open ? "Return to game" : "Game menu";
+    panelToggleBtn.setAttribute("aria-label", label);
+    panelToggleBtn.title = label;
+    const text = panelToggleBtn.querySelector(".btn-lbl");
+    if (text) text.textContent = label;
+  }
 }
-// A saved desktop drawer should not cover the game on the next mobile visit.
-setPanelOpen(!isMobileExperience() && preferences.getItem(PANEL_KEY) === "1", false);
+// Each visit starts at the dashboard on every device.
+setPanelOpen(true, false);
 on(panelToggleBtn, "click", () => {
   setPanelOpen(!document.body.classList.contains("panel-open"));
 });
-on("panelCloseBtn", "click", () => setPanelOpen(false));
-on("panelBackdrop", "click", () => setPanelOpen(false));
+
 
 importNetworkInvite();
 updateNetworkConfigUI();
@@ -427,7 +429,7 @@ window.PPSSPPNetworkInvites = {
     updateNetworkConfigUI();
   },
 };
-networkSaveBtn?.addEventListener("click", () => { try { saveNetworkConfigFromUI(); } catch (e) { networkActivityEl.textContent = e.message; } });
+byId("networkSettingsForm")?.addEventListener("submit", event => { event.preventDefault(); try { saveNetworkConfigFromUI(); } catch (e) { networkActivityEl.textContent = e.message; } });
 byId("networkDisconnectBtn")?.addEventListener("click", () => {
   window.ppssppAdhocTransport?.disconnect();
   networkProbe = { state: "unverified" };
@@ -441,7 +443,7 @@ byId("networkReconnectBtn")?.addEventListener("click", () => {
     ? "Core reconnect requested. Rejoin a session using the game's multiplayer menu."
     : "Enter the game's multiplayer menu first. Reconnect requires the updated WASM core.";
 });
-networkEnableToggle?.addEventListener("change", () => { try { saveNetworkConfigFromUI(); checkNetworkWhenVisible(); } catch (e) { networkActivityEl.textContent = e.message; } });
+networkEnableToggle?.addEventListener("change", () => { networkDraftDirty = true; networkActivityEl.textContent = "Unsaved changes."; });
 networkTestBtn?.addEventListener("click", testNetworkRelay);
 for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyInput", "networkNickInput", "networkMacInput", "networkTransportInput"]) {
   byId(id)?.addEventListener("input", () => {
@@ -468,15 +470,6 @@ const audioDebug = {
   workletPeak: 0, workletTotal: 0, ringDropped: 0, underruns: 0, fallbackPeak: 0, fallbackDropped: 0,
 };
 
-function updateIdleOverlay() {
-  if (!idleOverlay || started) return;
-  let text = "Your PSP games, right here. Open a game to play, or start the emulator and explore your library.";
-  if (selectedGame) text = "Ready to launch " + selectedGame.name + ".";
-  else if (selectedStoredGame) text = "Ready to launch " + selectedStoredGame + " from your library.";
-  if (idleSubtitle) idleSubtitle.textContent = text;
-}
-updateIdleOverlay();
-
 function setStartButtonMode(mode) {
   if (!startBtn) return;
   if (mode === "running") {
@@ -488,12 +481,12 @@ function setStartButtonMode(mode) {
     startBtn.disabled = true;
     startBtn.style.display = "";
     startBtn.title = "Starting PPSSPP";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> ${mode === "loading" ? "Starting…" : "Start emulator"}</span>`;
   } else {
     startBtn.disabled = false;
     startBtn.style.display = "";
     startBtn.title = "Launch PPSSPP";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> ${mode === "loading" ? "Starting…" : "Start emulator"}</span>`;
   }
 }
 
@@ -779,29 +772,28 @@ function isoFindEntry(bytes, wantedPath) {
   return bytes.slice(dataStart, dataStart + dir.size);
 }
 
-function parsePsfTitle(data) {
+function parsePsfString(data, field) {
   if (!data || data.byteLength < 20) return "";
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   if (view.getUint32(0, true) !== 0x46535000) return "";
-  const keyTable = view.getUint32(8, true);
-  const dataTable = view.getUint32(12, true);
-  const count = view.getUint32(16, true);
-  const decoder = new TextDecoder();
-
+  const keyTable = view.getUint32(8, true), dataTable = view.getUint32(12, true);
+  const count = view.getUint32(16, true), decoder = new TextDecoder();
+  if (count > 4096 || 20 + count * 16 > data.byteLength || keyTable >= data.byteLength || dataTable >= data.byteLength) return "";
   for (let i = 0; i < count; i++) {
     const off = 20 + i * 16;
-    const keyOff = view.getUint16(off, true);
-    const dataLen = view.getUint32(off + 4, true);
-    const dataOff = view.getUint32(off + 12, true);
-    let keyEnd = keyTable + keyOff;
-    while (keyEnd < data.byteLength && data[keyEnd] !== 0) keyEnd++;
-    const key = decoder.decode(data.slice(keyTable + keyOff, keyEnd));
-    if (key !== "TITLE") continue;
-    const raw = data.slice(dataTable + dataOff, dataTable + dataOff + dataLen);
-    return decoder.decode(raw).replace(/\0+$/g, "").trim();
+    const start = keyTable + view.getUint16(off, true);
+    if (start >= data.byteLength) continue;
+    let end = start;
+    while (end < data.byteLength && data[end] !== 0) end++;
+    if (decoder.decode(data.subarray(start, end)) !== field) continue;
+    const pos = dataTable + view.getUint32(off + 12, true), length = view.getUint32(off + 4, true);
+    if (length > 65536 || pos + length > data.byteLength) return "";
+    return decoder.decode(data.subarray(pos, pos + length)).replace(/\0+$/g, "").trim();
   }
   return "";
 }
+
+function parsePsfTitle(data) { return parsePsfString(data, "TITLE"); }
 
 function extractIsoMetadata(name, data) {
   const meta = {
@@ -810,12 +802,14 @@ function extractIsoMetadata(name, data) {
     format: (name.split(".").pop() || "").toUpperCase(),
     coverBytes: null,
     coverType: "",
+    discId: "",
   };
   if (!/\.iso$/i.test(name)) return meta;
 
   try {
     const sfo = isoFindEntry(data, "PSP_GAME/PARAM.SFO");
     const title = parsePsfTitle(sfo);
+    meta.discId = parsePsfString(sfo, "DISC_ID");
     if (title) meta.title = title;
   } catch(e) {}
 
@@ -869,12 +863,37 @@ async function isoFindBlobEntry(blob, wantedPath) {
   return entry ? read(entry.extent * 2048, entry.size) : null;
 }
 
+async function extractPbpMetadata(name, data) {
+  const meta = extractIsoMetadata(name, null);
+  const length = data instanceof Blob ? data.size : data?.byteLength || 0;
+  if (length < 40) return meta;
+  const read = async (start, end) => data instanceof Blob ? new Uint8Array(await data.slice(start, end).arrayBuffer()) : data.slice(start, end);
+  const header = await read(0, 40), view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  if (view.getUint32(0, true) !== 0x50425000) return meta;
+  const offsets = Array.from({ length: 8 }, (_, index) => view.getUint32(8 + index * 4, true));
+  if (offsets.some((offset, index) => offset < 40 || offset > length || (index > 0 && offset < offsets[index - 1]))) return meta;
+  if (offsets[1] - offsets[0] <= 1024 * 1024) {
+    const sfo = await read(offsets[0], offsets[1]);
+    meta.title = parsePsfTitle(sfo) || meta.title;
+    meta.discId = parsePsfString(sfo, "DISC_ID");
+  }
+  const iconSize = offsets[2] - offsets[1];
+  if (iconSize > 0 && iconSize <= 8 * 1024 * 1024) {
+    meta.coverBytes = await read(offsets[1], offsets[2]);
+    meta.coverType = "image/png";
+  }
+  return meta;
+}
+
 async function extractGameMetadata(name, data) {
+  if (/\.pbp$/i.test(name)) { try { return await extractPbpMetadata(name, data); } catch (_) { return extractIsoMetadata(name, null); } }
   if (!(data instanceof Blob)) return extractIsoMetadata(name, data);
   const meta = extractIsoMetadata(name, null);
   if (!/\.iso$/i.test(name)) return meta;
   try {
-    const title = parsePsfTitle(await isoFindBlobEntry(data, "PSP_GAME/PARAM.SFO"));
+    const sfo = await isoFindBlobEntry(data, "PSP_GAME/PARAM.SFO");
+    const title = parsePsfTitle(sfo);
+    meta.discId = parsePsfString(sfo, "DISC_ID");
     if (title) meta.title = title;
     const cover = await isoFindBlobEntry(data, "PSP_GAME/ICON0.PNG");
     if (cover?.length) { meta.coverBytes = cover; meta.coverType = "image/png"; }
@@ -885,7 +904,9 @@ async function extractGameMetadata(name, data) {
 async function writeGameMetadata(name, data) {
   const meta = await extractGameMetadata(name, data);
   const json = {
+    schemaVersion: 2,
     fileName: meta.fileName,
+    discId: meta.discId,
     title: meta.title,
     format: meta.format,
     coverType: meta.coverType,
@@ -918,6 +939,10 @@ async function deleteGameMetadata(name) {
   try { await dir.removeEntry(name + ".cover"); } catch(e) {}
 }
 
+async function confirmUI(message) {
+  return window.PPSSPPConsole?.confirm ? window.PPSSPPConsole.confirm(message) : confirm(message);
+}
+
 // Categorize an OPFS path for the file browser
 function opfsFileCategory(path) {
   if (/\/PSP\/SAVEDATA\//i.test(path))     return "Save Data";
@@ -943,7 +968,7 @@ async function downloadOpfsFile(path) {
 }
 
 async function deleteOpfsFile(path) {
-  if (!confirm("Delete from OPFS:\n" + path.split("/").pop() + "?")) return;
+  if (!await confirmUI("Delete from OPFS:\n" + path.split("/").pop() + "?")) return;
   try { await opfsDelete(path); } catch(e) {}
   if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
   showToast("🗑 Deleted " + path.split("/").pop());
@@ -993,8 +1018,8 @@ async function updateStorageInfo() {
             html += `<div class="opfs-file-name" title="${esc(path)}">${esc(name)}</div>`;
             html += `<div class="opfs-file-size">${formatBytes(size)}</div>`;
             html += `<div class="opfs-file-actions">`;
-            html += `<button title="Download" onclick="downloadStoredFile(${JSON.stringify(path)})">${svgIcon("download")}</button>`;
-            html += `<button class="del" title="Delete" onclick="deleteStoredFile(${JSON.stringify(path)})">${svgIcon("trash")}</button>`;
+            html += `<button title="Download" data-storage-action="download" data-path="${esc(path)}">${svgIcon("download")}</button>`;
+            html += `<button class="del" title="Delete" data-storage-action="delete" data-path="${esc(path)}">${svgIcon("trash")}</button>`;
             html += `</div>`;
             html += `</div>`;
           }
@@ -1021,7 +1046,7 @@ async function downloadStoredFile(path) {
 async function deleteStoredFile(path) {
   if (path.startsWith(VIRTUAL_GAME_DIR + "/")) {
     const name = path.slice((VIRTUAL_GAME_DIR + "/").length);
-    if (!confirm("Delete game file from OPFS:\n" + name + "?")) return;
+    if (!await confirmUI("Delete game file from OPFS:\n" + name + "?")) return;
     try {
       await opfsDeleteGame(name);
       if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
@@ -1030,6 +1055,7 @@ async function deleteStoredFile(path) {
       showToast("🗑 Deleted " + name);
       await refreshLibrary();
       updateStorageInfo();
+      return true;
     } catch(e) {
       log("Delete game file failed: " + e.message, "err");
       showToast("❌ Delete failed: " + e.message);
@@ -1061,7 +1087,6 @@ async function playOrMountStoredGame(name) {
     selectedStoredGame = name;
     selectedGame = null;
     if (fileLabel) fileLabel.title = name;
-    updateIdleOverlay();
     const textNode = fileLabel?.firstChild;
     if (textNode && textNode.nodeType === 3) textNode.textContent = "\uD83D\uDCC2 " + name + " ";
     setStatus("Starting " + name, "run");
@@ -1080,13 +1105,16 @@ async function playOrMountStoredGame(name) {
     refreshEmulatorGameBrowser("mounted " + name);
     showToast("✓ " + name + " mounted");
     refreshLibrary();
+    setPanelOpen(false);
   } catch(e) {
     log("Stored game mount failed: " + e.message, "err");
     showToast("❌ " + e.message);
   }
 }
 
+let gameInfoReturnFocus = null, gameInfoCoverURL = "";
 async function showGameInfo(name) {
+  gameInfoReturnFocus = document.activeElement;
   try {
     const meta = await ensureGameMetadata(name);
     const stat = (await opfsWalk(OPFS_GAMES_DIR, "", false)).find(g => g.path === name);
@@ -1094,7 +1122,8 @@ async function showGameInfo(name) {
     const preloads = isPreloadFavorite(name);
     const title = meta.title || prettyGameName(name);
     const cover = await readGameCoverURL(name, meta.coverType);
-    if (cover) _libraryCoverURLs.push(cover);
+    if (gameInfoCoverURL) URL.revokeObjectURL(gameInfoCoverURL);
+    gameInfoCoverURL = cover;
 
     const titleEl = byId("gameInfoTitle");
     const coverEl = byId("gameInfoCover");
@@ -1108,21 +1137,19 @@ async function showGameInfo(name) {
     titleEl.textContent = title;
     coverEl.innerHTML = cover
       ? `<img src="${cover}" alt="${esc(title)} cover">`
-      : `<div class="game-cover" style="height:100%;background:${gameAccent(name)}"><div class="game-cover-fallback">${esc(title.split(/\s+/).slice(0, 4).join(" "))}</div></div>`;
+      : gamePlaceholder();
     rowsEl.innerHTML = [
-      ["File", name],
-      ["Format", meta.format || "Unknown"],
-      ["Size", formatBytes(stat?.size || 0)],
-      ["Stored", "OPFS /" + OPFS_GAMES_DIR + "/" + name],
-      ["Runtime", VIRTUAL_GAME_DIR + "/" + name],
-      ["Mounted", mounted ? "yes" : "no"],
-      ["Preload", preloads ? "yes" : "no"],
-      ["Cover", meta.coverType ? "yes" : "no"],
+      ["File", name], ["Format", meta.format || "PSP"], ["Size", formatBytes(stat?.size || 0)],
+      ...(meta.discId ? [["Game ID", meta.discId]] : []),
     ].map(([k, v]) => `<div class="game-info-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
+    const options = modalEl.querySelector(".game-options");
+    if (options) options.open = false;
+    byId("gameInfoDeleteBtn").onclick = async () => { if (await deleteStoredFile(VIRTUAL_GAME_DIR + "/" + name)) closeGameInfo(); };
+    byId("gameInfoUploadBtn").onclick = () => runDriveAction("upload-game", () => uploadSingleGameToDrive(name));
 
     const favoriteBtn = byId("gameInfoFavoriteBtn");
     if (favoriteBtn) {
-      favoriteBtn.innerHTML = `${svgIcon("preload")} ${preloads ? "Preloads" : "Preload"}`;
+      favoriteBtn.innerHTML = `${svgIcon("preload")} ${preloads ? "Disable startup preload" : "Preload at startup"}`;
       favoriteBtn.classList.toggle("active", preloads);
       favoriteBtn.setAttribute("aria-pressed", preloads ? "true" : "false");
       favoriteBtn.onclick = async () => {
@@ -1133,13 +1160,15 @@ async function showGameInfo(name) {
 
     const playBtn = byId("gameInfoPlayBtn");
     if (playBtn) {
-      playBtn.textContent = started ? (mounted ? "Ready" : "Mount") : "Play";
-      playBtn.disabled = started && mounted;
+      playBtn.textContent = started ? (mounted ? "Return to emulator" : "Load in emulator") : "Play";
+      playBtn.disabled = false;
       playBtn.onclick = () => {
         closeGameInfo();
-        playOrMountStoredGame(name);
+        if (started && mounted) setPanelOpen(false);
+        else playOrMountStoredGame(name);
       };
     }
+    modalEl.dataset.gameName = name;
     modalEl.classList.add("visible");
     modalEl.setAttribute("aria-hidden", "false");
   } catch(e) {
@@ -1153,6 +1182,12 @@ function closeGameInfo() {
   if (!modal) return;
   modal.classList.remove("visible");
   modal.setAttribute("aria-hidden", "true");
+  const replacement = [...byId("libraryGrid").querySelectorAll(".collection-tile")].find(tile => tile.dataset.game === modal.dataset.gameName) || byId("libraryGrid").querySelector(".collection-tile:not([hidden])");
+  (gameInfoReturnFocus?.isConnected ? gameInfoReturnFocus : replacement || document.querySelector('.tab[data-tab="library"]'))?.focus({ preventScroll: true });
+  delete modal.dataset.gameName;
+  gameInfoReturnFocus = null;
+  if (gameInfoCoverURL) URL.revokeObjectURL(gameInfoCoverURL);
+  gameInfoCoverURL = "";
 }
 
 function refreshEmulatorGameBrowser(reason) {
@@ -1234,7 +1269,7 @@ function updatePreloadFavoriteSummary(count = loadPreloadFavorites().length) {
 
 async function ensureGameMetadata(name) {
   const meta = await readGameMetadata(name);
-  if (meta.updated) return meta;
+  if (meta.updated && meta.schemaVersion === 2) return meta;
   try {
     const file = await opfsGetGameFile(name);
     await writeGameMetadata(name, file);
@@ -1244,77 +1279,63 @@ async function ensureGameMetadata(name) {
   }
 }
 
-function gameAccent(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  const hue = hash % 360;
-  const hue2 = (hue + 42) % 360;
-  return `linear-gradient(135deg, hsl(${hue} 42% 28%), hsl(${hue2} 50% 13%) 58%, #080a0c)`;
+let libraryRenderVersion = 0;
+function gamePlaceholder() { return '<span class="game-placeholder"><img src="images/ppsspp-icon.png" alt=""><span>PSP</span></span>'; }
+function replaceCollectionContent(container, html) {
+  const key = container.contains(document.activeElement) ? document.activeElement.closest("[data-focus-key]")?.dataset.focusKey : null;
+  container.innerHTML = html;
+  if (key) [...container.querySelectorAll("[data-focus-key]")].find(el => el.dataset.focusKey === key)?.focus({ preventScroll: true });
 }
-
+function filterCollection(kind) {
+  const container = byId(kind === "library" ? "libraryGrid" : "savesList");
+  const query = (byId(kind === "library" ? "librarySearch" : "savesSearch")?.value || "").toLocaleLowerCase().trim();
+  let visible = 0;
+  for (const tile of container?.querySelectorAll(".collection-tile") || []) {
+    tile.hidden = !tile.dataset.search.includes(query);
+    if (!tile.hidden) visible++;
+  }
+  const empty = byId(kind === "library" ? "libraryEmpty" : "savesEmpty");
+  const total = container?.querySelectorAll(".collection-tile").length || 0;
+  if (total) { empty.style.display = visible ? "none" : "block"; empty.textContent = "No results for “" + query + "”."; }
+  const selection = byId(kind === "library" ? "librarySelection" : "savesSelection");
+  if (selection) selection.textContent = "";
+}
 async function refreshLibrary() {
-  const grid = document.getElementById("libraryGrid");
-  const empty = document.getElementById("libraryEmpty");
-  const count = document.getElementById("libraryCount");
+  const grid = byId("libraryGrid"), empty = byId("libraryEmpty"), count = byId("libraryCount");
   if (!grid || !empty) return;
-
-  clearLibraryCoverURLs();
-  grid.style.display = "none";
-  empty.style.display = "block";
-  empty.textContent = "Loading library…";
-
+  const version = ++libraryRenderVersion, urls = [];
+  grid.setAttribute("aria-busy", "true");
+  if (!grid.children.length) { empty.style.display = "block"; empty.textContent = "Loading games…"; }
   try {
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
-    games.sort((a, b) => a.path.localeCompare(b.path));
-    const preloadFavorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
-    if (count) count.textContent = games.length + " game" + (games.length === 1 ? "" : "s");
-
-    if (!games.length) {
-      empty.innerHTML = "No games in OPFS yet.<br>Add a game file or launch one once.";
-      return;
-    }
-
-    const cards = [];
+    const favorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
+    const records = [];
     for (const game of games) {
+      if (version !== libraryRenderVersion) { urls.forEach(url => URL.revokeObjectURL(url)); return; }
       const meta = await ensureGameMetadata(game.path);
-      const coverURL = await readGameCoverURL(game.path, meta.coverType);
-      if (coverURL) _libraryCoverURLs.push(coverURL);
-      const title = meta.title || prettyGameName(game.path);
-      const format = meta.format || (game.path.split(".").pop() || "").toUpperCase();
-      const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + game.path).exists;
-      const preloads = preloadFavorites.has(game.path);
-      const primary = started ? (mounted ? "Ready" : "Mount") : "Play";
-      const primaryDisabled = started && mounted ? " disabled" : "";
-      const fallback = title.split(/\s+/).slice(0, 4).join(" ");
-      cards.push(`
-        <div class="game-card">
-          <div class="game-cover" style="background:${gameAccent(game.path)}">
-            ${coverURL
-              ? `<img src="${coverURL}" alt="${esc(title)} cover" loading="lazy">`
-              : `<div class="game-cover-fallback">${esc(fallback)}</div>`}
-          </div>
-          <div class="game-card-body">
-            <div class="game-card-title" title="${esc(title)}">${esc(title)}</div>
-            <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}${preloads ? " · Preload" : ""}</div>
-            <div class="game-card-actions">
-              <button data-action="play" data-game="${esc(game.path)}"${primaryDisabled}>${primary}</button>
-              <button class="icon-only preload-toggle${preloads ? " active" : ""}" title="${preloads ? "Remove from startup preload" : "Preload on startup"}" aria-pressed="${preloads ? "true" : "false"}" data-action="favorite" data-game="${esc(game.path)}">${svgIcon("preload")}</button>
-              <button class="icon-only" title="Info" data-action="info" data-game="${esc(game.path)}">${svgIcon("info")}</button>
-              <button class="icon-only drive-sync-btn" title="Upload game file to Drive" data-action="drive-upload" data-game="${esc(game.path)}">${svgIcon("cloud-upload")}</button>
-              <button class="icon-only danger" title="Delete" data-action="delete" data-game="${esc(game.path)}">${svgIcon("trash")}</button>
-            </div>
-          </div>
-        </div>
-      `);
+      const cover = await readGameCoverURL(game.path, meta.coverType);
+      if (cover) urls.push(cover);
+      records.push({ ...game, title: meta.title || prettyGameName(game.path), format: meta.format || "PSP", cover });
     }
-
-    empty.style.display = "none";
-    grid.style.display = "grid";
-    grid.innerHTML = cards.join("");
-  } catch(e) {
-    empty.textContent = "Library error: " + e.message;
-    if (count) count.textContent = "0 games";
-  }
+    if (version !== libraryRenderVersion) { urls.forEach(url => URL.revokeObjectURL(url)); return; }
+    const sort = byId("librarySort")?.value;
+    records.sort((a, b) => sort === "size" ? b.size - a.size || a.title.localeCompare(b.title) : (sort === "title-desc" ? -1 : 1) * a.title.localeCompare(b.title));
+    const html = records.map(game => {
+      const title = esc(game.title), name = esc(game.path);
+      return `<button type="button" class="collection-tile" data-action="info" data-game="${name}" data-focus-key="${name}" data-search="${esc((game.title + " " + game.path).toLocaleLowerCase())}" data-description="${esc(game.title + " · " + game.format + " · " + formatBytes(game.size || 0))}" aria-label="Open ${title}">
+        <span class="tile-art">${game.cover ? `<img src="${game.cover}" alt="" loading="lazy">` : gamePlaceholder()}${favorites.has(game.path) ? '<span class="tile-tag">Preload</span>' : ''}</span>
+        <span class="tile-body"><span class="tile-title">${title}</span><span class="tile-meta">${esc(game.format)} · ${formatBytes(game.size || 0)}</span></span>
+      </button>`;
+    }).join("");
+    replaceCollectionContent(grid, html);
+    clearLibraryCoverURLs(); _libraryCoverURLs = urls;
+    grid.style.display = records.length ? "grid" : "none";
+    empty.style.display = records.length ? "none" : "block";
+    empty.textContent = "No games. Add an ISO, CSO, CHD or PBP file.";
+    if (count) count.textContent = records.length + (records.length === 1 ? " game" : " games");
+    filterCollection("library");
+  } catch (e) { if (version === libraryRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not read games: " + e.message; } urls.forEach(url => URL.revokeObjectURL(url)); }
+  finally { if (version === libraryRenderVersion) grid.removeAttribute("aria-busy"); }
 }
 
 async function addGameToLibrary(file) {
@@ -1555,137 +1576,134 @@ function groupSavesBySlot(fileMap) {
   return [...slots.values()];
 }
 
+function saveGameId(value) { return (String(value).match(/[A-Z]{4}\d{5}/i)?.[0] || value).toUpperCase(); }
+function buildSaveCollection(slots, library = []) {
+  const groups = new Map();
+  for (const slot of slots) {
+    const id = saveGameId(slot.game);
+    const meta = library.find(game => game.discId && saveGameId(game.discId) === id);
+    if (!groups.has(id)) groups.set(id, { id, title: meta?.title || id, icon: "", coverType: meta?.coverType || "", fileName: meta?.fileName || "", slots: [], size: 0 });
+    const group = groups.get(id);
+    if (!slot.flat) {
+      const sfo = slot.files.find(file => file.name.toUpperCase() === "PARAM.SFO")?.data;
+      const title = parsePsfString(sfo, "TITLE");
+      if (title) group.title = title;
+      const thumb = slot.files.find(file => file.name.toUpperCase() === "ICON0.PNG");
+      const icon = thumb?.data ? toDataURL(thumb.data, "png") : "";
+      if (icon && !group.icon) group.icon = icon;
+      group.slots.push({
+        id: slot.slotDir, kind: "data", title: parsePsfString(sfo, "SAVEDATA_TITLE") || "Save data",
+        description: parsePsfString(sfo, "SAVEDATA_DETAIL"), icon,
+        game: slot.game, slotDir: slot.slotDir, files: slot.files,
+        size: slot.files.reduce((sum, file) => sum + file.size, 0),
+      });
+    } else {
+      // Pair each state with its own preview, including its full storage path.
+      for (const data of slot.files.filter(file => /\.(ppst|sst)$/i.test(file.name))) {
+        const base = data.name.replace(/\.[^.]+$/, "");
+        const preview = slot.files.find(file => file.path.replace(/\.[^.]+$/, "") === data.path.replace(/\.[^.]+$/, "") && /\.(jpg|jpeg|png)$/i.test(file.name));
+        const number = base.match(/_(\d+)$/)?.[1];
+        const paths = [data.path, ...(preview ? [preview.path] : [])];
+        group.slots.push({
+          id: data.path, kind: "state", title: number !== undefined ? "State " + (Number(number) + 1) : /auto/i.test(base) ? "Auto state" : base,
+          description: "", game: slot.game, path: data.path, paths,
+          icon: preview?.data ? toDataURL(preview.data, preview.name.split(".").pop()) : "",
+          size: data.size + (preview?.size || 0),
+        });
+      }
+    }
+  }
+  for (const group of groups.values()) {
+    group.size = group.slots.reduce((sum, slot) => sum + slot.size, 0);
+    group.slots.sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+    group.dataCount = group.slots.filter(slot => slot.kind === "data").length;
+    group.stateCount = group.slots.length - group.dataCount;
+  }
+  return [...groups.values()].filter(group => group.slots.length).sort((a, b) => a.title.localeCompare(b.title));
+}
+function saveCollectionSummary(group) {
+  return [group.dataCount ? group.dataCount + (group.dataCount === 1 ? " save" : " saves") : "", group.stateCount ? group.stateCount + (group.stateCount === 1 ? " state" : " states") : ""].filter(Boolean).join(" · ");
+}
+let saveCollection = [], savesRenderVersion = 0, saveInfoReturnFocus = null;
+function renderSaveInfo(group) {
+  byId("saveInfoTitle").textContent = group.title;
+  byId("saveInfoSummary").textContent = saveCollectionSummary(group) + " · " + formatBytes(group.size);
+  byId("saveInfoIcon").innerHTML = group.icon ? `<img src="${group.icon}" alt="">` : gamePlaceholder();
+  const html = group.slots.map(slot => {
+    const dataAttrs = slot.kind === "data"
+      ? `data-slot-dir="${esc(slot.slotDir)}" data-game="${esc(slot.game)}"`
+      : `data-path="${esc(slot.path)}" data-paths="${esc(JSON.stringify(slot.paths))}" data-game="${esc(slot.game)}"`;
+    const thumb = slot.icon || group.icon;
+    return `<details class="save-slot" data-slot-id="${esc(slot.id)}"><summary data-focus-key="${esc(slot.id)}">${thumb ? `<img src="${thumb}" alt="">` : ""}<span><span class="slot-name">${esc(slot.title)}</span><span class="slot-meta">${slot.kind === "data" ? "Save data" : "Save state"} · ${formatBytes(slot.size)}</span></span></summary>
+      <div class="slot-body">${slot.description ? `<p>${esc(slot.description)}</p>` : ""}<div class="action-row">
+        <button type="button" data-save-action="${slot.kind === "data" ? "download-slot" : "download-file"}" ${dataAttrs}>${svgIcon("download")} Export</button>
+        <button type="button" class="drive-sync-btn" data-save-action="${slot.kind === "data" ? "drive-upload-slot" : "drive-upload-state"}" ${dataAttrs}>${svgIcon("cloud-upload")} Upload to Drive</button>
+        <button type="button" class="danger" data-save-action="${slot.kind === "data" ? "delete-slot" : "delete-pair"}" ${dataAttrs}>${svgIcon("trash")} Delete</button>
+      </div><p class="field-help">${esc(slot.kind === "data" ? slot.game : slot.path.split("/").pop())}</p></div>
+    </details>`;
+  }).join("");
+  const container = byId("saveInfoSlots");
+  const focusedSlot = container.contains(document.activeElement) ? document.activeElement.closest(".save-slot")?.dataset.slotId : null;
+  const opened = new Set([...container.querySelectorAll("details[open]")].map(el => el.dataset.slotId));
+  replaceCollectionContent(container, html);
+  for (const detail of container.querySelectorAll("details")) detail.open = opened.has(detail.dataset.slotId);
+  if (focusedSlot) ([...container.querySelectorAll("details")].find(detail => detail.dataset.slotId === focusedSlot) || container.querySelector("details"))?.querySelector("summary")?.focus({ preventScroll: true });
+}
+function showSaveInfo(id) {
+  const group = saveCollection.find(group => group.id === id);
+  if (!group) return;
+  const modal = byId("saveInfoModal");
+  saveInfoReturnFocus = document.activeElement;
+  modal.dataset.gameId = id;
+  renderSaveInfo(group);
+  modal.classList.add("visible"); modal.setAttribute("aria-hidden", "false");
+  modal.querySelector("summary")?.focus({ preventScroll: true });
+}
+function closeSaveInfo() {
+  const modal = byId("saveInfoModal");
+  modal.classList.remove("visible"); modal.setAttribute("aria-hidden", "true");
+  const id = modal.dataset.gameId;
+  delete modal.dataset.gameId;
+  const replacement = [...byId("savesList").querySelectorAll(".collection-tile")].find(tile => tile.dataset.saveGame === id) || byId("savesList").querySelector(".collection-tile:not([hidden])");
+  const target = saveInfoReturnFocus?.isConnected ? saveInfoReturnFocus : replacement || document.querySelector('.tab[data-tab="saves"]');
+  target?.focus({ preventScroll: true });
+  saveInfoReturnFocus = null;
+}
 async function refreshSavesTab() {
-  const empty  = document.getElementById("savesEmpty");
-  const list   = document.getElementById("savesList");
-  const stats  = document.getElementById("savesStats");
+  const empty = byId("savesEmpty"), list = byId("savesList"), stats = byId("savesStats");
   if (!empty || !list) return;
-
-  // Show spinner while loading
-  empty.style.display = "block";
-  empty.innerHTML = `<span class="saves-loading">Loading saves&hellip;</span>`;
-  list.style.display = "none";
-
-  let fileMap;
-  try { fileMap = await buildSaveFileMap(); }
-  catch(e) { empty.innerHTML = "Error reading saves: " + esc(e.message); return; }
-
-  const slots = groupSavesBySlot(fileMap);
-  const fromFS  = !!window.FS;
-  const source  = fromFS ? "live FS + OPFS" : "OPFS";
-
-  if (!slots.length) {
-    empty.style.display = "block";
-    empty.innerHTML = "No save data found in OPFS or FS.<br><small>Play a game, create a save, then sync.</small>";
-    list.style.display = "none";
-    if (stats) stats.textContent = "";
-    return;
-  }
-
-  let totalSlots = 0, totalBytes = 0;
-
-  // Separate save data vs save states
-  const saveDataSlots  = slots.filter(s => !s.flat);
-  const saveStateSlots = slots.filter(s =>  s.flat);
-
-  let html = "";
-
-  /* ── Save Data section ── */
-  if (saveDataSlots.length) {
-    const sdBytes = saveDataSlots.reduce((s, sl) => s + sl.files.reduce((a, f) => a + f.size, 0), 0);
-    html += `<div class="save-section-label"><span>${svgIcon("save")} Save Data</span><span>${saveDataSlots.length} slot${saveDataSlots.length !== 1 ? "s" : ""} · ${formatBytes(sdBytes)}</span></div>`;
-
-    for (const { slotDir, game, files, flat } of saveDataSlots) {
-      if (!files.length) continue;
-      const slotBytes = files.reduce((s, f) => s + f.size, 0);
-      totalSlots++; totalBytes += slotBytes;
-
-      // Pick best thumbnail: ICON0.PNG > PIC1.PNG > first .png > first .jpg
-      const byName = name => files.find(f => f.name.toUpperCase() === name);
-      const thumbFile = byName("ICON0.PNG") || byName("PIC1.PNG") ||
-                        files.find(f => /\.png$/i.test(f.name)) ||
-                        files.find(f => /\.jpg$/i.test(f.name));
-      const thumbExt  = thumbFile ? (thumbFile.name.split(".").pop() || "png") : "";
-      const thumbURL  = thumbFile?.data ? toDataURL(thumbFile.data, thumbExt) : null;
-
-      // Non-image files listed compactly
-      const dataFiles = files.filter(f => !/\.(png|jpg|jpeg|bmp)$/i.test(f.name));
-      const allPaths  = files.map(f => f.path);
-      const fileSummary = dataFiles.map(f => f.name).join(" · ");
-
-      html += `<div class="save-card">`;
-      if (thumbURL) {
-        html += `<img class="save-card-thumb" src="${thumbURL}" alt="cover" loading="lazy">`;
-      } else {
-        html += `<div class="save-card-thumb-placeholder">${svgIcon("save", "lucide save-ph-icon")}</div>`;
+  const version = ++savesRenderVersion;
+  list.setAttribute("aria-busy", "true");
+  if (!list.children.length) { empty.style.display = "block"; empty.textContent = "Loading saves…"; }
+  try {
+    const fileMap = await buildSaveFileMap();
+    const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
+    const library = await Promise.all(games.map(game => readGameMetadata(game.path)));
+    const groups = buildSaveCollection(groupSavesBySlot(fileMap), library);
+    for (const group of groups) {
+      if (!group.icon && group.fileName && group.coverType) {
+        try { group.icon = toDataURL(await opfsMetaRead(group.fileName + ".cover"), group.coverType); } catch (_) {}
       }
-      html += `<div class="save-card-body">`;
-      html += `<div class="save-card-name" title="${esc(slotDir)}">${esc(game)}</div>`;
-      html += `<div class="save-card-meta">${files.length} file${files.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ${formatBytes(slotBytes)}</div>`;
-      if (fileSummary) html += `<div class="save-card-files" title="${esc(fileSummary)}">${esc(fileSummary)}</div>`;
-      html += `</div>`;
-      html += `<div class="save-card-actions">`;
-      html += `<button title="Download slot" data-save-action="download-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("download")}</button>`;
-      html += `<button class="drive-sync-btn" title="Upload slot to Drive" data-save-action="drive-upload-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("cloud-upload")}</button>`;
-      html += `<button class="del" title="Delete slot" data-save-action="delete-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("trash")}</button>`;
-      html += `</div>`;
-      html += `</div>`;
     }
-  }
-
-  /* ── Save States section ── */
-  if (saveStateSlots.length) {
-    // Flatten all state files across game groups
-    const allStateFiles = [];
-    for (const { slotDir, game, files, flat } of saveStateSlots) {
-      for (const f of files) allStateFiles.push({ f, slotDir, game, flat });
+    for (const group of groups) if (!group.icon) group.icon = group.slots.find(slot => slot.icon)?.icon || "";
+    if (version !== savesRenderVersion) return;
+    saveCollection = groups;
+    replaceCollectionContent(list, groups.map(group => `<button type="button" class="collection-tile save-game-tile" data-save-game="${esc(group.id)}" data-focus-key="${esc(group.id)}" data-search="${esc((group.title + " " + group.id + " " + group.slots.map(slot => slot.title + " " + slot.game).join(" ")).toLocaleLowerCase())}" data-description="${esc(group.title + " · " + saveCollectionSummary(group) + " · " + formatBytes(group.size))}" aria-label="Open saves for ${esc(group.title)}">
+      <span class="tile-art">${group.icon ? `<img src="${group.icon}" alt="" loading="lazy">` : gamePlaceholder()}</span><span class="tile-body"><span class="tile-title">${esc(group.title)}</span><span class="tile-meta">${saveCollectionSummary(group)}</span></span>
+    </button>`).join(""));
+    list.style.display = groups.length ? "grid" : "none";
+    empty.style.display = groups.length ? "none" : "block";
+    empty.textContent = "No saves. Import a backup or save your progress in a game.";
+    const slots = groups.reduce((sum, group) => sum + group.slots.length, 0);
+    if (stats) stats.textContent = groups.length ? groups.length + (groups.length === 1 ? " game" : " games") + " · " + slots + (slots === 1 ? " slot" : " slots") : "";
+    filterCollection("saves");
+    const modal = byId("saveInfoModal");
+    if (modal.classList.contains("visible")) {
+      const group = groups.find(group => group.id === modal.dataset.gameId);
+      if (group) renderSaveInfo(group); else closeSaveInfo();
     }
-    const ssBytes = allStateFiles.reduce((s, { f }) => s + f.size, 0);
-    html += `<div class="save-section-label save-section-spaced"><span>${svgIcon("gamepad")} Save States</span><span>${allStateFiles.length} state${allStateFiles.length !== 1 ? "s" : ""} · ${formatBytes(ssBytes)}</span></div>`;
-
-    // Pair .ppst/.sst with same-base .jpg thumbnail
-    const stateByBase = new Map(); // base → { dataFile, thumbFile, slotDir, game, flat }
-    for (const { f, slotDir, game, flat } of allStateFiles) {
-      const dot  = f.name.lastIndexOf(".");
-      const base = dot !== -1 ? f.name.slice(0, dot) : f.name;
-      const ext  = dot !== -1 ? f.name.slice(dot + 1).toLowerCase() : "";
-      if (!stateByBase.has(base)) stateByBase.set(base, { dataFile: null, thumbFile: null, slotDir, game, flat });
-      if (ext === "jpg" || ext === "png") stateByBase.get(base).thumbFile = f;
-      else stateByBase.get(base).dataFile = f;
-    }
-
-    for (const { dataFile, thumbFile, slotDir, game, flat } of stateByBase.values()) {
-      const main = dataFile || thumbFile;
-      if (!main) continue;
-      totalSlots++; totalBytes += main.size + (thumbFile?.size || 0);
-      const thumbURL = thumbFile?.data ? toDataURL(thumbFile.data, "jpg") : null;
-      const allPaths = [main.path, ...(thumbFile && thumbFile !== main ? [thumbFile.path] : [])];
-      const slotLabel = main.name.replace(/\.[^.]+$/, "");
-
-      html += `<div class="save-state-row">`;
-      if (thumbURL) {
-        html += `<img class="save-state-thumb" src="${thumbURL}" alt="preview" loading="lazy">`;
-      }
-      html += `<div class="save-state-body">`;
-      html += `<div class="save-state-name" title="${esc(main.path)}">${esc(slotLabel)}</div>`;
-      html += `<div class="save-state-meta">${formatBytes(main.size)}</div>`;
-      html += `</div>`;
-      html += `<div class="save-state-actions">`;
-      if (dataFile) html += `<button title="Download" data-save-action="download-file" data-path="${esc(dataFile.path)}">${svgIcon("download")}</button>`;
-      html += `<button class="drive-sync-btn" title="Upload state to Drive" data-save-action="drive-upload-state" data-paths="${esc(JSON.stringify(allPaths))}" data-game="${esc(game)}">${svgIcon("cloud-upload")}</button>`;
-      html += `<button class="del" title="Delete" data-save-action="delete-pair" data-paths="${esc(JSON.stringify(allPaths))}">${svgIcon("trash")}</button>`;
-      html += `</div>`;
-      html += `</div>`;
-    }
-  }
-
-  empty.style.display = "none";
-  list.style.display  = "block";
-  list.innerHTML = html;
-  if (stats) stats.textContent =
-    totalSlots + " slot" + (totalSlots !== 1 ? "s" : "") +
-    " · " + formatBytes(totalBytes) +
-    " · source: " + source;
+  } catch (e) { if (version === savesRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not read saves: " + e.message; } }
+  finally { if (version === savesRenderVersion) list.removeAttribute("aria-busy"); }
 }
 
 // Read file data from FS first, fallback to OPFS
@@ -1706,19 +1724,7 @@ async function downloadSaveFile(path) {
 }
 
 async function downloadSaveSlot(slotDir, gameName) {
-  // Collect all OPFS entries for this slot
-  const all   = await opfsWalk();
-  const files = all.filter(e => e.path.startsWith(slotDir + "/"));
-  // Also grab any FS-only files not yet persisted
-  const FS = window.FS;
-  if (FS) {
-    const fsFiles = readSaveSlotFiles(FS, slotDir);
-    for (const { path } of fsFiles) {
-      if (!files.find(e => e.path === path)) {
-        try { files.push({ path, data: FS.readFile(path) }); } catch(e) {}
-      }
-    }
-  }
+  const files = [...(await buildSaveFileMap()).values()].filter(file => file.path.startsWith(slotDir + "/"));
   if (!files.length) { showToast("No files in slot"); return; }
   const bundle = {
     version: 1, exported: new Date().toISOString(),
@@ -1833,7 +1839,7 @@ async function uploadSingleGameToDrive(gameName) {
 }
 
 async function deleteSaveFile(path) {
-  if (!confirm("Delete file:\n" + path.split("/").pop() + "?")) return;
+  if (!await confirmUI("Delete file:\n" + path.split("/").pop() + "?")) return;
   // Remove from OPFS
   try { await opfsDelete(path); } catch(e) {}
   // Remove from FS if running
@@ -1845,7 +1851,7 @@ async function deleteSaveFile(path) {
 
 async function deleteSavePair(paths) {
   const names = paths.map(p => p.split("/").pop()).join("\n");
-  if (!confirm("Delete:\n" + names + "?\n\nThis cannot be undone.")) return;
+  if (!await confirmUI("Delete:\n" + names + "?\n\nThis cannot be undone.")) return;
   const FS = window.FS;
   for (const path of paths) {
     try { await opfsDelete(path); } catch(e) {}
@@ -1856,7 +1862,7 @@ async function deleteSavePair(paths) {
 }
 
 async function deleteSaveSlot(slotDir, gameName) {
-  if (!confirm("Delete ALL saves for:\n" + gameName + "?\n\nThis cannot be undone.")) return;
+  if (!await confirmUI("Delete ALL saves for:\n" + gameName + "?\n\nThis cannot be undone.")) return;
   // Delete all OPFS entries under this slot
   const all   = await opfsWalk();
   const paths = all.filter(e => e.path.startsWith(slotDir + "/")).map(e => e.path);
@@ -2510,7 +2516,7 @@ function restartDriveAutoSyncTimer() {
 async function buildSavesBundle() {
   const FS = window.FS;
   const root  = FS ? detectMemstickDir(FS) : (_detectedMemstick || PERSIST_ROOTS[0]);
-  const files = FS ? fsWalkDir(FS, root) : await opfsWalk();
+  const files = [...(await buildSaveFileMap()).values()];
   if (!files.length) return null;
   return {
     version: 1,
@@ -3868,6 +3874,12 @@ function installGamepadSelectionFilter() {
     Object.defineProperty(navigator, "__ppssppGamepadFiltered", { value: true });
     navigator.getGamepads = function() {
       const pads = nativeGetGamepads();
+      // Keep device identity stable while releasing every gameplay input in menus.
+      if (window.__ppssppConsoleInputBlocked) return Array.from(pads || [], gp => gp ? {
+        id: gp.id, index: gp.index, connected: gp.connected, mapping: gp.mapping,
+        timestamp: performance.now(), axes: Array.from(gp.axes, () => 0),
+        buttons: Array.from(gp.buttons, () => ({ pressed: false, touched: false, value: 0 })),
+      } : null);
       if (!pads || !isActiveGamepadPresent()) return pads;
 
       const filtered = Array.from(pads);
@@ -4427,22 +4439,23 @@ async function preloadGame(FS) {
 
 /* ── Panel navigation ───────────────────────────────────────────── */
 function activatePanelTab(tabName) {
-  const name = tabName || "library";
+  const name = tabName === "home" ? "library" : tabName || "library";
+  if (!document.body.classList.contains("panel-open")) setPanelOpen(true, false);
   document.querySelectorAll(".tab").forEach(tab => {
     tab.classList.toggle("active", tab.dataset.tab === name);
+    tab.setAttribute("aria-current", tab.dataset.tab === name ? "page" : "false");
   });
   document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.remove("active"));
   const id = "tab" + name.charAt(0).toUpperCase() + name.slice(1);
   const panel = document.getElementById(id);
   if (panel) panel.classList.add("active");
-  if (panelTabSelect && panelTabSelect.value !== name) panelTabSelect.value = name;
   if (name === "log") { flushLog(); renderLog(); }
   if (name === "library") refreshLibrary();
+  if (name === "saves") refreshSavesTab();
   if (name === "drive") initDriveConfigUI();
   if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
 }
 
-panelTabSelect?.addEventListener("change", e => activatePanelTab(e.currentTarget.value));
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => activatePanelTab(tab.dataset.tab));
 });
@@ -4500,7 +4513,7 @@ async function exportDiagnosticReport() {
 
 async function resetEmulatorSettings() {
   if (started && !runtimeFailed) { showToast("Reload first, then reset settings before starting PPSSPP."); return; }
-  if (!confirm("Reset emulator settings? Games, saves and controller mappings are kept. A backup of each settings file is retained.")) return;
+  if (!await confirmUI("Reset emulator settings? Games, saves and controller mappings are kept. A backup of each settings file is retained.")) return;
   try {
     await persistQueue;
     const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
@@ -4552,6 +4565,7 @@ async function start() {
   try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
   started = true;
   document.body.classList.add("emulator-started");
+  setPanelOpen(false, false);
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
   const startupWatchdog = setTimeout(() => {
@@ -4766,7 +4780,7 @@ function installTouchMouseShim() {
 }
 
 /* ── Event wiring ───────────────────────────────────────────────── */
-on(fileInput, "change", () => {
+if (fileInput) on(fileInput, "change", () => {
   selectedGame = fileInput?.files?.[0] || null;
   selectedStoredGame = null;
   if (fileLabel) fileLabel.title = selectedGame ? selectedGame.name : "Open game";
@@ -4774,14 +4788,12 @@ on(fileInput, "change", () => {
   const textNode = fileLabel?.firstChild;
   if (textNode && textNode.nodeType === 3)
     textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "\uD83D\uDCC2 Open Game") + " ";
-  updateIdleOverlay();
   setStatus(selectedGame ? "Selected: " + selectedGame.name : "Ready. Open a game file or use Library.");
 });
 
 on(startBtn, "click", () => {
   start();
 });
-on(idleStartBtn, "click", start);
 
 on("refreshLibraryBtn", "click", refreshLibrary);
 on("libraryGrid", "click", e => {
@@ -4800,13 +4812,9 @@ on("libraryImportFile", "change", e => {
   e.target.value = "";
   addGameToLibrary(f);
 });
-on("libraryDownloadUrlBtn", "click", () => {
+on("libraryUrlForm", "submit", event => {
+  event.preventDefault();
   addGameURLToLibrary(byId("libraryUrlInput")?.value || "");
-});
-on("libraryUrlInput", "keydown", e => {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
-  addGameURLToLibrary(e.currentTarget.value);
 });
 on("gameInfoCloseBtn", "click", closeGameInfo);
 on("gameInfoModal", "click", e => {
@@ -4823,7 +4831,10 @@ runtimeGameInput?.addEventListener("change", e => {
 // ── Saves tab buttons ─────────────────────────────────────────────
 on("refreshSavesBtn", "click", refreshSavesTab);
 on("exportAllSavesBtn", "click", exportSaves);
-on("savesList", "click", async e => {
+on("savesList", "click", event => { const tile = event.target.closest("button[data-save-game]"); if (tile) showSaveInfo(tile.dataset.saveGame); });
+on("saveInfoCloseBtn", "click", closeSaveInfo);
+on("saveInfoModal", "click", event => { if (event.target.id === "saveInfoModal") closeSaveInfo(); });
+on("saveInfoSlots", "click", async e => {
   const button = e.target.closest("button[data-save-action]");
   if (!button) return;
   const action = button.dataset.saveAction;
@@ -4851,7 +4862,7 @@ on("importSaveSlotFile", "change", e => {
   importSaveSlot(f); e.target.value = "";
 });
 on("deleteAllSavesBtn", "click", async () => {
-  if (!confirm("Delete ALL save data and save states?\nThis cannot be undone.")) return;
+  if (!await confirmUI("Delete ALL save data and save states?\nThis cannot be undone.")) return;
   // Delete only save-related OPFS entries (not config files or games)
   const all = await opfsWalk();
   for (const { path } of all) {
@@ -4892,13 +4903,7 @@ on("syncNowBtn", "click", async () => {
   showToast("✓ Synced to OPFS");
 });
 
-on("exportSavesBtn", "click", exportSaves);
 
-on("importSavesFile", "change", e => {
-  const f = e.target.files[0]; if (!f) return;
-  e.target.value = "";
-  importSaves(f);
-});
 
 // ── Google Drive buttons ─────────────────────────────────────────
 initDriveConfigUI();
@@ -4918,7 +4923,8 @@ window.addEventListener("storage", e => {
     disconnectGoogleDrive();
   }
 });
-on("saveGoogleClientIdBtn", "click", () => {
+on("driveConfigForm", "submit", event => {
+  event.preventDefault();
   const value = (googleClientIdInput?.value || "").trim();
   if (value) preferences.setItem(GOOGLE_CLIENT_ID_KEY, value);
   else preferences.removeItem(GOOGLE_CLIENT_ID_KEY);
@@ -4983,7 +4989,7 @@ driveRemoteList?.addEventListener("click", e => {
 });
 
 on("clearStorageBtn", "click", async () => {
-  if (!confirm("Delete ALL saved data and stored games from OPFS? This cannot be undone.")) return;
+  if (!await confirmUI("Delete ALL saved data and stored games from OPFS? This cannot be undone.")) return;
   await opfsClearAll();
   _lastPersistTime = 0;
   refreshLibrary();
@@ -5112,7 +5118,9 @@ on(fullscreenBtn, "click", async () => {
 });
 function setFullscreenMenuOpen(open, focus = true) {
   const toggle = byId("fsMenuToggle");
+  const wasOpen = toggle?.getAttribute("aria-expanded") === "true";
   toggle?.setAttribute("aria-expanded", String(open));
+  if (wasOpen !== open) document.dispatchEvent(new CustomEvent("consolevisibilitychange", { detail: { open } }));
   for (const id of ["fsMenuActions", "fsMenuBackdrop"]) {
     const element = byId(id);
     if (element) element.hidden = !open;
@@ -5122,15 +5130,16 @@ function setFullscreenMenuOpen(open, focus = true) {
 on("fsMenuToggle", "click", () => setFullscreenMenuOpen(byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true"));
 on("fsMenuBackdrop", "click", () => setFullscreenMenuOpen(false));
 document.addEventListener("keydown", event => {
+  if (document.querySelector(".console-dialog")) return;
   const panelOpen = document.body.classList.contains("panel-open");
   const menuOpen = byId("fsMenuToggle")?.getAttribute("aria-expanded") === "true";
   if (!panelOpen && !menuOpen) return;
-  if (event.key === "Escape") {
+  if (event.key === "Escape" && !byId("gameInfoModal")?.classList.contains("visible")) {
     event.preventDefault(); event.stopImmediatePropagation();
     if (panelOpen) setPanelOpen(false); else setFullscreenMenuOpen(false);
   } else if (event.key === "Tab") {
     const container = byId(panelOpen ? "sidePanel" : "fsMenuActions");
-    const controls = [...(container?.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]') || [])]
+    const controls = [...(container?.querySelectorAll('button, label.btn, summary, input, select, textarea, a[href], [tabindex="0"]') || [])]
       .filter(element => !element.disabled && element.getClientRects().length);
     const first = controls[0], last = controls[controls.length - 1];
     if (first && (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
@@ -5174,3 +5183,25 @@ if ("serviceWorker" in navigator) {
     })
     .catch(err => log("SW registration failed: " + err.message, "warn"));
 }
+
+// Dashboard navigation reads the original device stream, before SDL filtering.
+window.PPSSPPConsole = {
+  setOpen: setPanelOpen, setMenuOpen: setFullscreenMenuOpen, switchTab: activatePanelTab, closeGameInfo, closeSaveInfo,
+  getGamepads: () => { try { return Array.from(nativeGetGamepads?.() || []); } catch (_) { return []; } },
+  notify: showToast,
+};
+
+
+for (const [kind, gridId, inputId] of [["library", "libraryGrid", "librarySearch"], ["saves", "savesList", "savesSearch"]]) {
+  on(inputId, "input", () => filterCollection(kind));
+  const select = event => { const tile = event.target.closest(".collection-tile"); if (tile) byId(kind === "library" ? "librarySelection" : "savesSelection").textContent = tile.dataset.description; };
+  on(gridId, "focusin", select); on(gridId, "pointerover", select);
+}
+on("librarySort", "change", refreshLibrary);
+
+on("opfsFileList", "click", event => {
+  const button = event.target.closest("button[data-storage-action]");
+  if (!button) return;
+  if (button.dataset.storageAction === "download") downloadStoredFile(button.dataset.path);
+  else deleteStoredFile(button.dataset.path);
+});

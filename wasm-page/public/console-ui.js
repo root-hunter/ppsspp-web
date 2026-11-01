@@ -1,0 +1,292 @@
+/* Console navigation is independent of Angular and of SDL's filtered input stream. */
+(() => {
+  const defaults = { up: 12, down: 13, left: 14, right: 15, confirm: 0, back: 1, previous: 4, next: 5 };
+  const directions = ['up', 'down', 'left', 'right'];
+  const pressed = (pad, index) => !!pad.buttons[index]?.pressed || pad.buttons[index]?.value > 0.5;
+  function readActions(pad, mapping = defaults, previous = new Set()) {
+    const result = new Set();
+    for (const [action, index] of Object.entries(mapping)) if (pressed(pad, index)) result.add(action);
+    // A little hysteresis prevents drift around the activation threshold.
+    for (const [action, axis, sign] of [['left', 0, -1], ['right', 0, 1], ['up', 1, -1], ['down', 1, 1]]) {
+      if ((pad.axes[axis] || 0) * sign > (previous.has(action) ? 0.35 : 0.55)) result.add(action);
+    }
+    if (mapping.menu === undefined && pressed(pad, 10) && pressed(pad, 11)) result.add('menu');
+    return result;
+  }
+  function neutral(pad) {
+    return !pad.buttons.some(b => b.pressed || b.value > 0.5) && !pad.axes.slice(0, pad.mapping === 'standard' ? 4 : 2).some(a => Math.abs(a) > 0.35);
+  }
+  function sampleActions(state, actions, now) {
+    const events = [];
+    for (const action of actions) {
+      if (!state.held.has(action)) { events.push(action); state.repeat.set(action, now + 380); }
+      else if (directions.includes(action) && now >= state.repeat.get(action)) {
+        events.push(action); state.repeat.set(action, now + 110);
+      }
+    }
+    for (const action of state.held) if (!actions.has(action)) state.repeat.delete(action);
+    state.held = actions;
+    return events;
+  }
+  function spatialTarget(origin, candidates, direction) {
+    const horizontal = direction === 'left' || direction === 'right';
+    const sign = direction === 'left' || direction === 'up' ? -1 : 1;
+    const cx = origin.left + origin.width / 2, cy = origin.top + origin.height / 2;
+    let best = null, score = Infinity;
+    for (const candidate of candidates) {
+      const r = candidate.rect;
+      const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+      const main = (horizontal ? dx : dy) * sign;
+      if (main <= 2) continue;
+      const cross = Math.abs(horizontal ? dy : dx);
+      const aligned = horizontal
+        ? r.top < origin.top + origin.height && r.top + r.height > origin.top
+        : r.left < origin.left + origin.width && r.left + r.width > origin.left;
+      const rank = main + cross * 2.5 + (aligned ? 0 : 10000);
+      if (rank < score) { score = rank; best = candidate.element; }
+    }
+    return best;
+  }
+  // Also exposed for deterministic regression tests without starting a browser.
+  window.PPSSPPConsoleNavigation = { readActions, sampleActions, spatialTarget, neutral, defaults };
+  if (!window.PPSSPPConsole) return;
+  const bridge = window.PPSSPPConsole;
+  const byId = id => document.getElementById(id);
+  const body = document.body;
+  const storageKey = 'ppsspp_console_mappings_v1';
+  let mappings = {};
+  try { mappings = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) {}
+  let dialog = null, restoreFocus = null, editTarget = null, draft = '', caps = false, resolveConfirmation = null;
+  let mappingStep = null, releaseGate = true;
+  const states = new Map();
+  const fullscreenMenuOpen = () => byId('fsMenuToggle')?.getAttribute('aria-expanded') === 'true';
+  const recoveryOpen = () => byId('runtimeRecovery')?.hidden === false;
+  const uiOpen = () => body.classList.contains('panel-open') || byId('gameInfoModal')?.classList.contains('visible') || byId('saveInfoModal')?.classList.contains('visible') || !!dialog || fullscreenMenuOpen() || recoveryOpen();
+  const controlsSelector = 'button, label.btn, summary, input:not([type="file"]), select, textarea, a[href], [tabindex="0"]';
+  function root() {
+    if (dialog) return dialog;
+    if (byId('gameInfoModal')?.classList.contains('visible')) return byId('gameInfoModal');
+    if (byId('saveInfoModal')?.classList.contains('visible')) return byId('saveInfoModal');
+    if (body.classList.contains('panel-open')) return byId('sidePanel');
+    return byId(fullscreenMenuOpen() ? 'fsMenuActions' : recoveryOpen() ? 'runtimeRecovery' : 'sidePanel');
+  }
+  function controls() {
+    return [...root().querySelectorAll(controlsSelector)].filter(el => !el.disabled && !el.closest('[inert], [hidden], .disabled') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+  }
+  function focus(el) { el?.focus({ preventScroll: true }); el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); }
+  function prepareLabels() {
+    document.querySelectorAll('label').forEach(el => {
+      if (!el.matches('.btn') && !el.querySelector('input[type="file"]')) return;
+      el.tabIndex = el.classList.contains('disabled') || el.control?.disabled ? -1 : 0;
+    });
+  }
+  prepareLabels();
+  const observer = new MutationObserver(() => {
+    prepareLabels();
+    if (uiOpen() && !controls().includes(document.activeElement)) focus(controls()[0]);
+  });
+  observer.observe(byId('sidePanel'), { childList: true, subtree: true });
+  for (const id of ['gameInfoModal', 'saveInfoModal']) observer.observe(byId(id), { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+  function stepSelect(el, sign) {
+    const options = [...el.options].filter(option => !option.disabled);
+    const index = options.indexOf(el.selectedOptions[0]);
+    const next = options[(index + sign + options.length) % options.length];
+    if (!next) return;
+    el.value = next.value; el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function navigate(direction) {
+    const list = controls(), current = document.activeElement;
+    if (!list.includes(current)) { focus(list[0]); return; }
+    if (current.tagName === 'SELECT' && ['left', 'right'].includes(direction)) { stepSelect(current, direction === 'left' ? -1 : 1); return; }
+    const target = spatialTarget(current.getBoundingClientRect(), list.filter(el => el !== current).map(element => ({ element, rect: element.getBoundingClientRect() })), direction);
+    if (target) focus(target);
+  }
+  function closeDialog(commit = false) {
+    if (commit && editTarget) {
+      editTarget.value = draft;
+      editTarget.dispatchEvent(new Event('input', { bubbles: true }));
+      editTarget.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const resolve = resolveConfirmation; resolveConfirmation = null;
+    dialog?.remove(); dialog = null; editTarget = null; mappingStep = null;
+    releaseGate = true;
+    if (resolve) resolve(commit);
+    focus(restoreFocus); restoreFocus = null;
+  }
+  function createDialog(title) {
+    restoreFocus = document.activeElement;
+    dialog = document.createElement('div'); dialog.className = 'console-dialog';
+    dialog.innerHTML = '<div class="console-dialog-card" role="dialog" aria-modal="true" aria-labelledby="consoleDialogTitle"><h2 id="consoleDialogTitle"></h2></div>';
+    dialog.querySelector('h2').textContent = title;
+    // A fullscreen descendant must own the dialog to keep it visible.
+    (document.fullscreenElement || document.webkitFullscreenElement || body).append(dialog);
+    return dialog.firstElementChild;
+  }
+  bridge.confirm = message => new Promise(resolve => {
+    const card = createDialog('Confirm');
+    const text = document.createElement('p'); text.textContent = message; card.append(text);
+    const actions = document.createElement('div'); actions.className = 'console-dialog-actions'; card.append(actions);
+    const cancel = button(actions, 'Cancel', () => closeDialog());
+    button(actions, 'Confirm', () => closeDialog(true)).className = 'danger';
+    resolveConfirmation = resolve; focus(cancel);
+  });
+  function button(parent, text, action) {
+    const el = document.createElement('button'); el.type = 'button'; el.textContent = text; el.addEventListener('click', action); parent.append(el); return el;
+  }
+  function updateDraft() { byId('consoleKeyboardValue').textContent = editTarget.type === 'password' ? '•'.repeat(draft.length) : draft || ' '; }
+  function keyboard(target) {
+    const card = createDialog(target.getAttribute('aria-label') || target.labels?.[0]?.textContent.trim() || target.placeholder || 'Enter text');
+    editTarget = target; draft = target.value; caps = false;
+    const value = document.createElement('output'); value.id = 'consoleKeyboardValue'; value.className = 'console-keyboard-value'; card.append(value); updateDraft();
+    const grid = document.createElement('div'); grid.className = 'console-keyboard'; card.append(grid);
+    for (const char of '1234567890qwertyuiopasdfghjkl-zxcvbnm._/@:#?=&%+!') {
+      const key = button(grid, char, () => {
+        if (target.maxLength > 0 && draft.length >= target.maxLength) return;
+        draft += caps ? char.toUpperCase() : char; updateDraft();
+      });
+      key.dataset.character = char;
+    }
+    const actions = document.createElement('div'); actions.className = 'console-dialog-actions'; card.append(actions);
+    button(actions, 'Shift', () => { caps = !caps; grid.querySelectorAll('button').forEach(key => { key.textContent = caps ? key.dataset.character.toUpperCase() : key.dataset.character; }); });
+    button(actions, 'Space', () => { if (!(target.maxLength > 0 && draft.length >= target.maxLength)) draft += ' '; updateDraft(); });
+    button(actions, '⌫ Delete', () => { draft = draft.slice(0, -1); updateDraft(); });
+    button(actions, 'Clear', () => { draft = ''; updateDraft(); });
+    button(actions, 'Cancel', () => closeDialog());
+    button(actions, 'Done', () => closeDialog(true)).className = 'primary';
+    focus(grid.firstElementChild);
+  }
+  function activate() {
+    const el = document.activeElement;
+    if (!controls().includes(el)) { focus(controls()[0]); return; }
+    if (el.tagName === 'SELECT') { stepSelect(el, 1); return; }
+    if (el.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"])')) {
+      if (!el.readOnly) keyboard(el); return;
+    }
+    if (el.tagName === 'LABEL' && el.control?.type === 'file') {
+      const input = el.control || el.querySelector('input');
+      try { if (input?.showPicker) input.showPicker(); else input?.click(); }
+      catch (_) { bridge.notify('Use touch, mouse or Enter to open the browser file picker.'); }
+      return;
+    }
+    el.click();
+  }
+  function back() {
+    if (dialog) { closeDialog(); return; }
+    const openOptions = document.activeElement.closest('.collection-tools[open], .game-options[open], .save-slot[open]');
+    if (openOptions) { openOptions.open = false; focus(openOptions.querySelector('summary')); return; }
+    if (byId('gameInfoModal')?.classList.contains('visible')) { bridge.closeGameInfo(); return; }
+    if (byId('saveInfoModal')?.classList.contains('visible')) { bridge.closeSaveInfo(); return; }
+    if (fullscreenMenuOpen()) { bridge.setMenuOpen(false); return; }
+    if (recoveryOpen() && !body.classList.contains('panel-open')) { bridge.switchTab('info'); return; }
+    if (body.classList.contains('emulator-started')) bridge.setOpen(false);
+    else { bridge.switchTab('library'); focus(document.querySelector('.tab.active')); }
+  }
+  function section(sign) {
+    if (dialog || byId('gameInfoModal')?.classList.contains('visible') || byId('saveInfoModal')?.classList.contains('visible')) return;
+    const tabs = [...document.querySelectorAll('.tab')];
+    const index = tabs.findIndex(tab => tab.classList.contains('active'));
+    const tab = tabs[(index + sign + tabs.length) % tabs.length];
+    bridge.switchTab(tab.dataset.tab); focus(tab);
+  }
+  function action(name) {
+    body.classList.add('console-controller');
+    if (name === 'menu') { if (dialog) back(); else bridge.setOpen(!body.classList.contains('panel-open')); return; }
+    if (!uiOpen()) return;
+    if (directions.includes(name)) navigate(name);
+    else if (name === 'confirm') activate();
+    else if (name === 'back') back();
+    else if (name === 'previous' || name === 'next') section(name === 'previous' ? -1 : 1);
+  }
+  const mappingActions = [...directions, 'confirm', 'back', 'previous', 'next', 'menu'];
+  function configure() {
+    const pads = bridge.getGamepads().filter(Boolean);
+    const pad = pads.find(p => p.index === window.__ppssppActiveGamepadIndex) || pads[0];
+    if (!pad) { bridge.notify('Connect a controller and press a button first.'); return; }
+    const card = createDialog('Configure UI controller');
+    const help = document.createElement('p'); help.textContent = 'Use a D-pad for directions. The left stick also works. Press a different button for each action. This changes dashboard controls only.'; card.append(help);
+    const prompt = document.createElement('p'); prompt.id = 'consoleMappingPrompt'; card.append(prompt);
+    button(card, 'Cancel', () => closeDialog());
+    mappingStep = { id: pad.id, index: pad.index, step: 0, mapping: {}, armed: false };
+    prompt.textContent = 'Release all buttons, then press: UP'; focus(card.querySelector('button'));
+  }
+  byId('configureControllerBtn')?.addEventListener('click', configure);
+  byId('resetControllerBtn')?.addEventListener('click', () => {
+    mappings = {}; try { localStorage.removeItem(storageKey); } catch (_) {}
+    byId('controllerMappingStatus').textContent = 'Standard UI layout restored.';
+  });
+  function capture(pad) {
+    if (!pad || pad.id !== mappingStep.id || pad.index !== mappingStep.index) return;
+    if (!pad.buttons.some(b => b.pressed || b.value > 0.5)) { mappingStep.armed = true; return; }
+    if (!mappingStep.armed) return;
+    const index = pad.buttons.findIndex(b => b.pressed || b.value > 0.5);
+    if (Object.values(mappingStep.mapping).includes(index)) return;
+    mappingStep.mapping[mappingActions[mappingStep.step++]] = index; mappingStep.armed = false;
+    if (mappingStep.step === mappingActions.length) {
+      mappings[mappingStep.id] = mappingStep.mapping;
+      try { localStorage.setItem(storageKey, JSON.stringify(mappings)); } catch (_) {}
+      byId('controllerMappingStatus').textContent = 'Custom UI mapping saved for ' + pad.id;
+      closeDialog(); releaseGate = true; return;
+    }
+    byId('consoleMappingPrompt').textContent = 'Release all buttons, then press: ' + mappingActions[mappingStep.step].toUpperCase();
+  }
+  document.addEventListener('consolevisibilitychange', () => { releaseGate = true; window.__ppssppConsoleInputBlocked = true; });
+  document.addEventListener('pointerdown', event => {
+    body.classList.remove('console-controller');
+    for (const detail of document.querySelectorAll('.collection-tools[open]')) if (!detail.contains(event.target)) detail.open = false;
+  }, true);
+  document.querySelectorAll('.collection-tools').forEach(detail => detail.addEventListener('toggle', () => {
+    if (detail.open) for (const other of document.querySelectorAll('.collection-tools[open]')) if (other !== detail) other.open = false;
+  }));
+  // Capture before SDL's window listeners; leave browser editing/default behavior intact.
+  window.addEventListener('keydown', event => {
+    if (event.key === 'F1' && !dialog) { event.preventDefault(); event.stopImmediatePropagation(); bridge.setOpen(!body.classList.contains('panel-open')); return; }
+    if (!uiOpen()) return;
+    const el = document.activeElement;
+    const editing = el?.matches('input:not([type="checkbox"]):not([type="file"]), textarea, select');
+    const direction = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
+    if (direction && !editing) { event.preventDefault(); navigate(direction); }
+    else if (event.key === 'Escape') { event.preventDefault(); back(); }
+    else if ((event.key === 'Enter' || event.key === ' ') && el?.matches('label[tabindex="0"]')) { event.preventDefault(); el.control?.click(); }
+    else if (event.key === 'Tab') {
+      const list = controls(); const index = list.indexOf(el);
+      event.preventDefault(); focus(list[(index + (event.shiftKey ? -1 : 1) + list.length) % list.length]);
+    }
+    if (event.defaultPrevented) event.stopImmediatePropagation();
+  }, true);
+  document.addEventListener('keydown', event => { if (uiOpen()) event.stopPropagation(); });
+  window.addEventListener('keyup', event => { if (uiOpen()) event.stopImmediatePropagation(); }, true);
+  document.addEventListener('visibilitychange', () => { states.clear(); releaseGate = true; });
+  function poll(now) {
+    requestAnimationFrame(poll);
+    if (document.hidden || !document.hasFocus()) { states.clear(); releaseGate = true; window.__ppssppConsoleInputBlocked = true; return; }
+    const allPads = bridge.getGamepads().filter(pad => pad && pad.connected !== false);
+    const selected = allPads.find(pad => pad.index === window.__ppssppActiveGamepadIndex);
+    const pads = selected ? [selected] : allPads;
+    if (!pads.length && byId('consoleInputStatus').textContent.includes('connected')) byId('consoleInputStatus').textContent = 'Keyboard · Mouse · Touch';
+    const indexes = new Set(pads.map(pad => pad.index));
+    for (const index of states.keys()) if (!indexes.has(index)) states.delete(index);
+    if (releaseGate && allPads.every(neutral)) releaseGate = false;
+    window.__ppssppConsoleInputBlocked = !!uiOpen() || releaseGate;
+    for (const pad of pads) {
+      if (mappingStep) { capture(pad); continue; }
+      let state = states.get(pad.index);
+      const saved = mappings[pad.id];
+      const mapping = saved && typeof saved === 'object' ? saved : defaults;
+      if (!state) {
+        // New/reconnected devices must first release controls to avoid accidental actions.
+        states.set(pad.index, { id: pad.id, held: new Set(), repeat: new Map(), ready: neutral(pad) }); continue;
+      }
+      if (state.id !== pad.id) { states.delete(pad.index); continue; }
+      if (!state.ready) { state.ready = neutral(pad); continue; }
+      const events = sampleActions(state, readActions(pad, mapping, state.held), now);
+      for (const name of events) {
+        byId('consoleInputStatus').textContent = (pad.mapping === 'standard' ? 'Controller' : mappings[pad.id] ? 'Custom controller' : 'Generic · configure in System') + ' · connected';
+        action(name);
+      }
+    }
+  }
+  window.__ppssppConsoleInputBlocked = true;
+  if (!navigator.getGamepads) byId('consoleInputStatus').textContent = 'Controller API unavailable · use keyboard or touch';
+  focus(document.querySelector('.tab.active'));
+  requestAnimationFrame(poll);
+})();

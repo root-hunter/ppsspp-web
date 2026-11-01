@@ -1,4 +1,4 @@
-.PHONY: wasm-ffmpeg help app-install app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local \
+.PHONY: wasm-ffmpeg help app-install app-build app-build-pages pages wasm-dev wasm-dev-local wasm-release wasm-release-local serve serve-local serve-only serve-http serve-check \
 	server-docker-up server-docker-up-local server-docker-down server-docker-logs \
 	wasm-status wasm-root-check wasm-submodules wasm-submodule-branch \
 	wasm-submodule-update wasm-submodule-use-local wasm-submodule-use-origin \
@@ -11,8 +11,11 @@ WASM_SUBMODULE := deps/ppsspp-wasm
 LOCAL_WASM_ROOT ?= ../ppsspp-wasm
 WASM_ROOT ?= $(WASM_SUBMODULE)
 WASM_BRANCH ?= wasm
-BIND ?= 192.168.1.170
+BIND ?= 127.0.0.1
 PORT ?= 8081
+HTTPS ?= 1
+ADHOC_WS_PORT ?= 27312
+PYTHON ?= python3
 CMAKE ?= $(or $(wildcard /usr/bin/cmake),cmake)
 WASM_JOBS ?= -j4
 WASM_FFMPEG_JOBS ?= 4
@@ -33,6 +36,9 @@ help:
 	@echo "  make wasm-dev              Build the active WASM_ROOT ($(WASM_ROOT)) for dev"
 	@echo "  make wasm-release          Build the active WASM_ROOT ($(WASM_ROOT)) for release"
 	@echo "  make serve                 Build the Angular app and serve the active WASM_ROOT ($(WASM_ROOT))"
+	@echo "  make serve-only            Serve the existing Angular build without rebuilding"
+	@echo "  make serve-http            Build and serve over HTTP (localhost development)"
+	@echo "  make serve-local           Serve LOCAL_WASM_ROOT (a separate sibling checkout)"
 	@echo "  make server-docker-up      Serve through Docker, mounting WASM_ROOT"
 	@echo "  make wasm-status           Show web, submodule, and local clone status"
 	@echo "  make wasm-submodule-branch Put the submodule on branch $(WASM_BRANCH) for local edits"
@@ -40,6 +46,7 @@ help:
 	@echo "  make wasm-pin-local        Point the submodule at LOCAL_WASM_ROOT HEAD"
 	@echo ""
 	@echo "Variables:"
+	@echo "  BIND=$(BIND) PORT=$(PORT) HTTPS=$(HTTPS) ADHOC_WS_PORT=$(ADHOC_WS_PORT)"
 	@echo "  WASM_ROOT=$(WASM_ROOT)"
 	@echo "  LOCAL_WASM_ROOT=$(LOCAL_WASM_ROOT)"
 	@echo "  WASM_BRANCH=$(WASM_BRANCH)"
@@ -79,7 +86,8 @@ app-build-pages: wasm-root-check
 	@test ! -d "$(APP_DIST)/build-wasm/lib"
 	@echo "GitHub Pages static bundle ready in $(APP_DIST) using $(PAGES_WASM_DIR)"
 
-pages: wasm-release app-build-pages
+pages: wasm-release
+	$(MAKE) app-build-pages
 
 wasm-root-check:
 	@test -d "$(WASM_ROOT)" || (echo "Missing WASM_ROOT: $(WASM_ROOT)" >&2; exit 1)
@@ -116,14 +124,29 @@ wasm-release:
 wasm-release-local:
 	$(MAKE) wasm-release WASM_ROOT="$(LOCAL_WASM_ROOT)"
 
-serve: app-build wasm-root-check
-	python3 server/serve.py --https --wasm-root $(WASM_ROOT) --bind $(BIND) --port $(PORT) --adhoc-ws
+serve-check: wasm-root-check
+	@found=0; for build in build-wasm build-wasm-release; do \
+		if [ -f "$(WASM_ROOT)/$$build/PPSSPPSDL.js" ] && \
+		   [ -f "$(WASM_ROOT)/$$build/PPSSPPSDL.wasm" ] && \
+		   [ -f "$(WASM_ROOT)/$$build/PPSSPPSDL.data" ]; then found=1; fi; \
+	done; [ "$$found" = 1 ] || { echo "Missing WASM build in $(WASM_ROOT). Run make wasm-dev or make wasm-release with the same WASM_ROOT." >&2; exit 1; }
+
+serve: serve-check
+	$(MAKE) app-build
+	$(MAKE) serve-only
+
+serve-only: serve-check
+	@test -f "$(APP_DIST)/index.html" || { echo "Missing Angular build. Run make app-build or make serve." >&2; exit 1; }
+	$(PYTHON) server/serve.py $(if $(filter 1 true yes,$(HTTPS)),--https) --wasm-root "$(WASM_ROOT)" --bind "$(BIND)" --port "$(PORT)" --adhoc-ws --adhoc-ws-port "$(ADHOC_WS_PORT)"
+
+serve-http:
+	$(MAKE) serve HTTPS=0
 
 serve-local:
 	$(MAKE) serve WASM_ROOT="$(LOCAL_WASM_ROOT)"
 
-server-docker-up:
-	WASM_ROOT="$(abspath $(WASM_ROOT))" docker compose up --build ppsspp-wasm-server
+server-docker-up: serve-check
+	PPSSPP_PORT="$(PORT)" WASM_ROOT="$(abspath $(WASM_ROOT))" docker compose up --build ppsspp-wasm-server
 
 server-docker-up-local:
 	$(MAKE) server-docker-up WASM_ROOT="$(LOCAL_WASM_ROOT)"

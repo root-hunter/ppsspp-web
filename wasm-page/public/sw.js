@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v14-network-nickname";
+const CACHE_VERSION = "ppsspp-angular-v16-console-collections";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -17,6 +17,7 @@ const SHELL_FILES = [
   "./index.html",
   "./manifest.webmanifest",
   "./ppsspp-runtime.js",
+  "./console-ui.js",
   "./adhoc-transport.js",
 ];
 
@@ -61,6 +62,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/index.html") ||
                   pathname.endsWith("/manifest.webmanifest") ||
                   pathname.endsWith("/ppsspp-runtime.js") ||
+                  pathname.endsWith("/console-ui.js") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");
 

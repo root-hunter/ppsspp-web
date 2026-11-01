@@ -53,6 +53,25 @@ Then serve it from this repository:
 make serve
 ```
 
+Open **https://127.0.0.1:8081/** and accept the local self-signed certificate.
+The default bind address is loopback; for access from other devices use
+`make serve BIND=0.0.0.0` and open the host's LAN IP in the browser.
+
+```sh
+make serve-only                         # Restart without rebuilding the UI
+make serve-http                         # HTTP on localhost (no certificate)
+make serve PORT=8082 ADHOC_WS_PORT=27313  # Use different web and relay ports
+```
+
+HTTP on a LAN address does not provide the secure browser context required by
+WebAssembly threads. Keep HTTPS for LAN access. `HTTPS=0` also works with
+`serve-only`. `PORT` sets the published web port for `server-docker-up` too.
+
+Run these commands inside `ppsspp-web`, or use `make -C ppsspp-web serve`
+from the workspace root. The `*-local` targets specifically select the separate
+`../ppsspp-wasm` checkout through `LOCAL_WASM_ROOT`; this directory must exist.
+For the bundled submodule use the targets without `-local`.
+
 By default the server reads `deps/ppsspp-wasm/build-wasm/` and
 `deps/ppsspp-wasm/build-wasm-release/`. Use
 `WASM_ROOT=/path/to/ppsspp-wasm` if the checkout lives somewhere else.
@@ -114,8 +133,13 @@ Static packaging includes `PPSSPPSDL.worker.js` when the Emscripten build emits
 a separate pthread worker. The worker participates in the build cache revision,
 so changing it invalidates the matching emulator bundle.
 
-The settings panel overlays the game without changing its size. Fullscreen
-includes the panel and a toolbar for opening settings or leaving fullscreen.
+The console dashboard opens directly in the game library. Each game has one
+selectable tile; saves are grouped by game with their PSP icons and state
+previews. Search, sorting and horizontal sections provide access to games, saves,
+multiplayer, cloud and system settings. D-pad/left stick,
+face buttons and shoulders navigate the dashboard; L3 + R3 or F1 opens it during
+play. Fullscreen includes the dashboard and its dialogs. See
+[console navigation](docs/console-ui.md) for mappings and browser limitations.
 These improvements adapt ideas from the power8koch-alt, noreturningfromthis,
 bee-san and BeezBumba forks.
 

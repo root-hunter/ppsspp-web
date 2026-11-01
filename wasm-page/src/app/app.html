@@ -5,38 +5,6 @@
       <span class="brand-name">PPSSPP <small>WEB</small></span>
     </span>
 
-    <div class="hbar-sep"></div>
-
-    <div class="hbar-group" id="launchGroup">
-      <label class="btn" id="fileLabel">
-        <i data-lucide="folder-open"></i><span class="btn-lbl"> Open Game</span>
-        <input id="gameFile" aria-label="Open PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-      </label>
-      <button id="startBtn" aria-label="Start PPSSPP" class="primary"><i data-lucide="play"></i><span class="btn-lbl"> Start PPSSPP</span></button>
-      <label class="btn" id="runtimeIsoLabel" style="display:none" title="Load a game file while running — then open it from PPSSPP game browser">
-        <i data-lucide="upload"></i><span class="btn-lbl"> Load Game</span>
-        <input id="runtimeIsoFile" aria-label="Load PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-      </label>
-    </div>
-
-    <div class="hbar-sep"></div>
-
-    <div class="hbar-group" id="displayGroup">
-      <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
-      <select id="gamepadSelect" class="btn" title="Active controller">
-        <option value="-1">All controllers</option>
-      </select>
-    </div>
-
-    <div class="hbar-sep gpu-sep"></div>
-    <div class="hbar-group" id="gpuSelectWrap">
-      <select id="gpuSelect" class="btn" title="GPU preference">
-        <option value="high-performance">Dedicated GPU</option>
-        <option value="low-power">Integrated GPU</option>
-        <option value="default">Auto GPU</option>
-      </select>
-    </div>
-
     <div class="hbar-end">
       <span id="gamepadBadge" class="badge" title="Gamepad"><i data-lucide="gamepad-2"></i> No controller</span>
       <span id="gpuBadge"     class="badge" title="GPU"><i data-lucide="monitor"></i> Detecting&hellip;</span>
@@ -46,7 +14,7 @@
       <a class="top-official-link" href="https://www.ppsspp.org/" target="_blank" rel="noopener" title="Original PPSSPP website">
         <span>PPSSPP.org</span><i data-lucide="external-link"></i>
       </a>
-      <button id="panelToggleBtn" class="panel-btn" title="Toggle console panel" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i><span class="btn-lbl"> Panel</span></button>
+      <button id="panelToggleBtn" class="panel-btn" title="Game menu" aria-label="Game menu" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="gamepad-2"></i><span class="btn-lbl">Game menu</span></button>
     </div>
   </header>
 
@@ -55,38 +23,12 @@
     <div class="fullscreen-toolbar">
       <button id="fsMenuToggle" type="button" aria-label="Game menu" aria-controls="fsMenuActions" aria-expanded="false" title="Game menu"><span aria-hidden="true">···</span></button>
       <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="Game controls" hidden>
-        <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i> Settings &amp; library</button>
+        <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="gamepad-2"></i> Dashboard</button>
         <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
       </div>
     </div>
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
-      <div id="idleOverlay">
-        <div class="idle-content">
-          <div class="idle-copy">
-            <div class="idle-kicker">PlayStation Portable · Browser edition</div>
-            <h1 class="idle-title">Play your<br>PSP games.</h1>
-            <p class="idle-subtitle" id="idleSubtitle">Your PSP games, right here. Open a game to play, or start the emulator and explore your library.</p>
-            <div class="idle-actions">
-              <button id="idleStartBtn" class="primary" type="button"><i data-lucide="play"></i><span> Start PPSSPP</span></button>
-              <label class="btn" for="gameFile"><i data-lucide="folder-open"></i><span> Open Game</span></label>
-              <a class="idle-repo-link" href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener" title="Open PPSSPP Web repository">
-                <i data-lucide="git-fork"></i><span> Source on GitHub</span>
-              </a>
-            </div>
-            <p class="idle-formats">ISO · CSO · CHD · PBP · ELF · PRX <span>Local files. No upload.</span></p>
-          </div>
-          <figure class="console-photo">
-            <img src="images/psp-3000.webp" alt="Silver Sony PSP-3000 console" width="1200" height="663" fetchpriority="high" decoding="async">
-            <figcaption><span>PSP–3000</span><span>Sony · PlayStation Portable</span></figcaption>
-          </figure>
-        </div>
-        <a class="idle-powered" href="https://github.com/root-hunter" target="_blank" rel="noopener" title="Powered by root-hunter">
-          <span class="idle-powered-dot"></span>
-          <span>Powered by</span>
-          <strong>root-hunter</strong>
-        </a>
-      </div>
       <div id="loadOverlay">
         <div class="spinner"></div>
         <div class="load-label" id="loadLabel">Initializing&hellip;</div>
@@ -109,85 +51,70 @@
       </div>
     </section>
 
-    <button id="panelBackdrop" type="button" aria-label="Close panel" tabindex="-1"></button>
-    <aside id="sidePanel" aria-label="Settings and information">
-      <div class="status-bar">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">Ready. Open a game file or use Library.</span>
-        <button id="panelCloseBtn" class="icon-btn" type="button" aria-label="Close panel" title="Close panel"><i data-lucide="x"></i></button>
-      </div>
+    <section id="sidePanel" class="console-dashboard" aria-label="Console dashboard">
+      <div class="status-bar" role="status"><span class="status-dot" id="statusDot"></span><span id="statusText">Ready</span></div>
 
-      <div class="panel-tab-select-wrap">
-        <select id="panelTabSelect" class="panel-tab-select" aria-label="Panel section">
-          <option value="library">Library</option>
-          <option value="saves">Saves</option>
-          <option value="network">Network</option>
-          <option value="drive">Google Drive</option>
-          <option value="storage">OPFS Storage</option>
-          <option value="info">System</option>
-          <option value="log">Console</option>
-          <option value="about">About</option>
-        </select>
-      </div>
-
-      <div class="tabs" aria-hidden="true">
-        <div class="tab active" data-tab="library"><i data-lucide="gamepad-2"></i> Library</div>
-        <div class="tab"        data-tab="saves"><i data-lucide="save"></i> Saves</div>
-        <div class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</div>
-        <div class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</div>
-        <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
-        <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
-        <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
-        <div class="tab"        data-tab="about"><i data-lucide="info"></i> About</div>
-      </div>
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button type="button" class="tab active" data-tab="library" aria-current="page"><i data-lucide="gamepad-2"></i> Library</button>
+        <button type="button" class="tab"        data-tab="saves"><i data-lucide="save"></i> Saves</button>
+        <button type="button" class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</button>
+        <button type="button" class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</button>
+        <button type="button" class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> Storage</button>
+        <button type="button" class="tab"        data-tab="info"><i data-lucide="settings"></i> System</button>
+        <button type="button" class="tab"        data-tab="log"><i data-lucide="terminal"></i> Logs</button>
+        <button type="button" class="tab"        data-tab="about"><i data-lucide="info"></i> About</button>
+      </nav>
 
       <div class="tab-panel active" id="tabLibrary">
-        <div id="libraryPanel">
-          <div class="library-toolbar">
-            <button id="refreshLibraryBtn"><i data-lucide="refresh-cw"></i> Refresh</button>
-            <label class="btn" id="libraryImportLabel">
-              <i data-lucide="folder-plus"></i> Add Game
-              <input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-            </label>
-            <input id="libraryUrlInput" type="url" placeholder="https://.../game.iso|cso|chd" autocomplete="off" spellcheck="false">
-            <button id="libraryDownloadUrlBtn"><i data-lucide="download"></i> Download</button>
-            <span class="library-preload-count" id="libraryPreloadCount">0 preload</span>
-            <span class="library-count" id="libraryCount">0 games</span>
+        <div id="libraryPanel" class="collection-panel">
+          <div class="collection-heading">
+            <div><h1>Games</h1><p id="libraryCount">0 games</p></div>
+            <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i> Add game<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
           </div>
-          <div id="libraryEmpty">No games in OPFS yet.<br>Add a game file or launch one once.</div>
-          <div id="libraryGrid" class="library-grid" style="display:none"></div>
+          <div class="collection-toolbar">
+            <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search games</span><input id="librarySearch" type="search" placeholder="Search games" autocomplete="off"></label>
+            <label class="sort-field"><span class="sr-only">Sort games</span><select id="librarySort"><option value="title">Title A–Z</option><option value="title-desc">Title Z–A</option><option value="size">File size</option></select></label>
+            <details class="collection-tools"><summary>Library options</summary><div class="tools-content">
+              <div class="action-row"><button id="startBtn" type="button"><i data-lucide="play"></i> Start emulator</button><button id="refreshLibraryBtn" type="button"><i data-lucide="refresh-cw"></i> Refresh library</button></div>
+              <form id="libraryUrlForm"><label for="libraryUrlInput">Download a game from a URL</label><div class="field-action"><input id="libraryUrlInput" type="url" placeholder="https://example.org/game.iso" required autocomplete="off" spellcheck="false"><button id="libraryDownloadUrlBtn" type="submit">Download</button></div></form>
+              <p id="libraryPreloadCount" class="field-help">0 preload</p>
+            </div></details>
+          </div>
+          <div id="libraryEmpty" class="collection-empty" role="status">No games. Add an ISO, CSO, CHD or PBP file.</div>
+          <div id="libraryGrid" class="collection-grid" aria-label="Games" style="display:none"></div>
+          <div id="librarySelection" class="collection-selection" aria-live="polite"></div>
         </div>
       </div>
 
       <div class="tab-panel" id="tabSaves">
-        <div id="savesPanel">
-          <div class="saves-toolbar">
-            <button id="refreshSavesBtn"><i data-lucide="refresh-cw"></i> Refresh</button>
-            <button id="exportAllSavesBtn"><i data-lucide="download"></i> Export All</button>
-            <label class="btn" id="importSaveSlotLabel" title="Import a single save slot folder (.ppsspp)">
-              <i data-lucide="upload"></i> Import Slot
-              <input id="importSaveSlotFile" type="file" accept=".ppsspp,.json">
-            </label>
-            <label class="btn" title="Select a PSP SAVEDATA folder or one game's save folder">
-              <i data-lucide="folder-open"></i> PSP Folder
-              <input id="nativeSaveFolderInput" type="file" webkitdirectory multiple aria-label="Import native PSP save folder">
-            </label>
-            <button id="deleteAllSavesBtn" class="danger toolbar-push"><i data-lucide="trash-2"></i> All</button>
+        <div id="savesPanel" class="collection-panel">
+          <div class="collection-heading"><div><h1>Saves</h1><p id="savesStats"></p></div>
+            <label class="btn primary" id="importSaveSlotLabel"><i data-lucide="upload"></i> Import saves<input id="importSaveSlotFile" type="file" accept=".ppsspp,.json"></label>
           </div>
-          <div id="savesEmpty">Start PPSSPP and play a game,<br>then click Refresh to see your saves.</div>
-          <div id="savesList" style="display:none"></div>
-          <div class="saves-stats" id="savesStats"></div>
+          <div class="collection-toolbar">
+            <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search saves</span><input id="savesSearch" type="search" placeholder="Search games or save slots" autocomplete="off"></label>
+            <details class="collection-tools"><summary>Save options</summary><div class="tools-content action-stack">
+              <button id="refreshSavesBtn" type="button"><i data-lucide="refresh-cw"></i> Refresh saves</button>
+              <button id="exportAllSavesBtn" type="button"><i data-lucide="download"></i> Export backup</button>
+              <label class="btn">Import PSP folder<input id="nativeSaveFolderInput" type="file" webkitdirectory multiple aria-label="Import native PSP save folder"></label>
+              <button id="deleteAllSavesBtn" type="button" class="danger">Delete all saves</button>
+            </div></details>
+          </div>
+          <div id="savesEmpty" class="collection-empty" role="status">No saves.</div>
+          <div id="savesList" class="collection-grid" aria-label="Games with saves" style="display:none"></div>
+          <div id="savesSelection" class="collection-selection" aria-live="polite"></div>
         </div>
       </div>
 
       <div class="tab-panel" id="tabNetwork">
-        <div id="networkPanel">
+        <div id="networkPanel" class="settings-panel">
+          <div class="section-heading"><h1>Multiplayer</h1></div>
           <section class="network-status" id="networkStatus" data-tone="neutral" role="status" aria-live="polite" aria-atomic="true">
             <div class="network-status-heading"><span class="network-led" aria-hidden="true"></span><strong id="networkStatusTitle">Not connected</strong></div>
             <p id="networkStatusDetail">Enable multiplayer, then check your relay connection.</p>
             <div class="network-session" id="networkSessionState">No active game session</div>
           </section>
-          <div class="network-config">
+          <form id="networkSettingsForm" class="network-config">
             <label class="network-toggle">
               <input type="checkbox" id="networkEnableToggle">
               <span>Enable multiplayer</span>
@@ -199,12 +126,12 @@
               <input id="networkRoomInput" type="text" maxlength="32" placeholder="public">
               <small>Use the same room and game version as your friends.</small>
             </label>
-            <label class="network-field">Your session key <span class="network-optional">optional</span>
+            <label class="network-field"><span>Session key <small class="network-optional">(optional)</small></span>
               <input id="networkSessionKeyInput" type="password" maxlength="256" autocomplete="off" placeholder="Required only on a protected relay">
             </label>
             <div class="network-actions">
-              <button id="networkSaveBtn"><i data-lucide="save"></i> Save settings</button>
-              <button id="networkTestBtn"><i data-lucide="activity"></i> Check connection</button>
+              <button id="networkSaveBtn" type="submit" class="primary"><i data-lucide="save"></i> Save settings</button>
+              <button id="networkTestBtn" type="button"><i data-lucide="activity"></i> Check connection</button>
             </div>
             <div id="networkActivity" class="network-activity" role="status">Save before starting PPSSPP, then host or join from the game's multiplayer menu.</div>
             <details class="network-advanced">
@@ -223,11 +150,11 @@
                 <small>Each player needs a different address. Usually no change is needed.</small>
               </label>
               <div class="network-actions">
-                <button id="networkDisconnectBtn" disabled>Disconnect</button>
-                <button id="networkReconnectBtn" disabled>Reconnect game</button>
+                <button type="button" id="networkDisconnectBtn" disabled>Disconnect</button>
+                <button type="button" id="networkReconnectBtn" disabled>Reconnect game</button>
               </div>
             </details>
-          </div>
+          </form>
           <details id="networkInvitePanel">
             <summary>Play with friends · QR &amp; invitation</summary>
             <p>Share the relay, room and optional session key. Your friends keep their own nickname and MAC. Use the same game version, then host or join inside the game.</p>
@@ -237,8 +164,8 @@
             <textarea id="networkInviteLink" rows="3" readonly hidden aria-label="Invitation link"></textarea>
             <button id="networkInviteCopyBtn" hidden>Copy invitation</button>
             <p>For separate access and revocation, each friend needs their own key from the relay administrator.</p>
-            <input id="networkInviteImportInput" type="text" autocomplete="off" placeholder="Paste an invitation link" aria-label="Invitation to import">
-            <button id="networkInviteImportBtn">Import invitation</button>
+            <form id="networkInviteImportForm"><label for="networkInviteImportInput">Invitation link</label><div class="field-action"><input id="networkInviteImportInput" type="url" required autocomplete="off" placeholder="Paste an invitation link" aria-label="Invitation to import">
+            <button id="networkInviteImportBtn" type="submit">Import</button></div></form>
             <label>Scan QR image <input id="networkInviteImageInput" type="file" accept="image/*" capture="environment"></label>
             <button id="networkInviteScanBtn">Scan with camera</button>
             <button id="networkInviteStopBtn" hidden>Stop camera</button>
@@ -250,14 +177,16 @@
       </div>
 
       <div class="tab-panel" id="tabDrive">
-        <div id="drivePanel">
+        <div id="drivePanel" class="settings-panel">
+          <div class="section-heading"><h1>Google Drive</h1></div>
           <div class="info-group">
-            <h3>Google Drive</h3>
-            <div class="drive-config">
+            <h2>Connection</h2>
+            <label for="googleClientIdInput">Google OAuth client ID</label>
+            <form id="driveConfigForm" class="drive-config">
               <input id="googleClientIdInput" type="password" spellcheck="false" autocomplete="off" placeholder="OAuth Web client ID">
-              <button id="toggleGoogleClientIdBtn" title="Show client ID"><i data-lucide="eye"></i></button>
-              <button id="saveGoogleClientIdBtn" title="Save client ID"><i data-lucide="save"></i></button>
-            </div>
+              <button type="button" id="toggleGoogleClientIdBtn" title="Show client ID"><i data-lucide="eye"></i></button>
+              <button type="submit" id="saveGoogleClientIdBtn" title="Save client ID"><i data-lucide="save"></i></button>
+            </form>
             <div class="info-row"><span class="info-key">Auth</span> <span class="info-val" id="iDriveAuth">Not connected</span></div>
             <div class="info-row"><span class="info-key">Folder</span> <span class="info-val" id="iDriveFolder">&#8212;</span></div>
             <div class="info-row"><span class="info-key">Remote</span> <span class="info-val" id="iDriveRemote">&#8212;</span></div>
@@ -286,7 +215,7 @@
             <span id="driveAutoSyncStatus" class="drive-autosync-status"></span>
           </div>
           <div class="drive-help">
-            Static GitHub Pages flow: use a Google OAuth Web client ID, add this Pages origin and redirect URI in Google Cloud, and keep client secrets out of the app.
+            Use a Web client ID with this site’s address registered in Google Cloud.
           </div>
           <div id="driveActivity" class="drive-activity">Idle</div>
           <div id="driveRemoteList"><span class="drive-empty">Connect Google Drive to list remote saves and games.</span></div>
@@ -294,9 +223,10 @@
       </div>
 
       <div class="tab-panel" id="tabStorage">
-        <div id="storagePanel">
+        <div id="storagePanel" class="settings-panel">
+          <div class="section-heading"><h1>Storage</h1></div>
           <div class="info-group">
-            <h3>OPFS Persistence</h3>
+            <h2>Local storage</h2>
             <div class="info-row"><span class="info-key">Saved Files</span>  <span class="info-val" id="iStorageFiles">&#8212;</span></div>
             <div class="info-row"><span class="info-key">Total Size</span>   <span class="info-val" id="iStorageSize">&#8212;</span></div>
             <div class="info-row"><span class="info-key">Last Sync</span>    <span class="info-val" id="iLastSync">Never</span></div>
@@ -304,12 +234,7 @@
             <div class="info-row"><span class="info-key">Persist Path</span> <span class="info-val path-val" id="iMemstickPath">&#8212;</span></div>
           </div>
           <div class="storage-actions">
-            <button id="syncNowBtn"><i data-lucide="save"></i> Save Now (sync to OPFS)</button>
-            <button id="exportSavesBtn"><i data-lucide="download"></i> Export Saves (.ppsspp)</button>
-            <label class="btn" id="importSavesLabel">
-              <i data-lucide="upload"></i> Import Saves (.ppsspp)
-              <input id="importSavesFile" type="file" accept=".ppsspp,.json">
-            </label>
+            <button id="syncNowBtn"><i data-lucide="save"></i> Sync now</button>
             <button id="clearStorageBtn" class="danger"><i data-lucide="trash-2"></i> Clear All Saved Data</button>
           </div>
         </div>
@@ -318,7 +243,16 @@
       </div>
 
       <div class="tab-panel" id="tabInfo">
-        <div id="infoPanel">
+        <div id="infoPanel" class="settings-panel">
+          <div class="section-heading"><h1>Settings</h1></div>
+          <section class="info-group"><h2>Display and controller</h2>
+            <div class="settings-fields">
+              <label class="form-field" for="gamepadSelect">Active controller<select id="gamepadSelect"><option value="-1">All controllers</option></select></label>
+              <label class="form-field" for="gpuSelect">Graphics processor<select id="gpuSelect"><option value="high-performance">Dedicated GPU</option><option value="low-power">Integrated GPU</option><option value="default">Automatic</option></select></label>
+            </div>
+            <div class="action-row"><button id="fullscreenBtn" type="button"><i data-lucide="maximize"></i> Fullscreen</button><button id="configureControllerBtn" type="button">Configure controller</button><button id="resetControllerBtn" type="button">Reset mapping</button></div>
+            <p id="controllerMappingStatus" class="field-help" role="status">Standard button layout.</p>
+          </section>
           <div class="info-group">
             <h3>Troubleshooting</h3>
             <p class="about-text">Reports include browser details, graphics/audio settings and recent logs. Download and review before sharing; nothing is sent automatically.</p>
@@ -361,7 +295,7 @@
       </div>
 
       <div class="tab-panel" id="tabAbout">
-        <div id="aboutPanel">
+        <div id="aboutPanel" class="settings-panel">
           <div class="about-hero">
             <img class="about-mark" src="images/ppsspp-icon.png" alt="PPSSPP" width="40" height="40">
             <div>
@@ -370,10 +304,6 @@
             </div>
           </div>
 
-          <div class="info-group">
-            <h3>Photography</h3>
-            <p class="about-text">PSP-3000 photo by <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>. Resized and converted to WebP.</p>
-          </div>
           <div class="info-group">
             <h3>PPSSPP-WASM Fork</h3>
             <div class="about-text">
@@ -428,14 +358,20 @@
       <div class="tab-panel" id="tabLog">
         <div id="logPanel"><pre id="log"></pre></div>
         <div class="log-toolbar">
-          <input id="logFilter" placeholder="Filter&hellip;" type="search" autocomplete="off" spellcheck="false">
+          <input id="logFilter" aria-label="Filter logs" placeholder="Filter&hellip;" type="search" autocomplete="off" spellcheck="false">
           <button id="clearLogBtn" title="Clear"><i data-lucide="trash-2"></i></button>
         </div>
       </div>
-    </aside>
-  </div>
+      <footer class="console-hints"><span><kbd>↔ ↕</kbd> Navigate</span><span><kbd>A / ×</kbd> Select</span><span><kbd>B / ○</kbd> Back</span><span><kbd>LB / RB</kbd> Sections</span><span class="hint-menu"><kbd>L3 + R3</kbd> Dashboard</span><span id="consoleInputStatus" role="status">Keyboard · Mouse · Touch</span></footer>
+    </section>
 
-  <div id="toast"></div>
+  <div id="toast" role="status"></div>
+  <div id="saveInfoModal" class="collection-modal" aria-hidden="true">
+    <div class="save-info-dialog" role="dialog" aria-modal="true" aria-labelledby="saveInfoTitle">
+      <div class="save-dialog-heading"><div id="saveInfoIcon"></div><div><h2 id="saveInfoTitle"></h2><p id="saveInfoSummary"></p></div><button id="saveInfoCloseBtn" type="button" aria-label="Close saves"><i data-lucide="x"></i></button></div>
+      <div id="saveInfoSlots"></div>
+    </div>
+  </div>
   <div id="gameInfoModal" aria-hidden="true">
     <div class="game-info-dialog" role="dialog" aria-modal="true" aria-labelledby="gameInfoTitle">
       <div class="game-info-cover" id="gameInfoCover"></div>
@@ -445,8 +381,13 @@
       </div>
       <div class="game-info-actions">
         <button id="gameInfoPlayBtn" class="primary"><i data-lucide="play"></i> Play</button>
-        <button id="gameInfoFavoriteBtn"><i data-lucide="hard-drive"></i> Preload</button>
+        <details class="game-options"><summary>Game options</summary><div class="action-stack">
+          <button id="gameInfoFavoriteBtn" type="button"><i data-lucide="hard-drive"></i> Preload at startup</button>
+          <button id="gameInfoUploadBtn" type="button" class="drive-sync-btn">Upload to Drive</button>
+          <button id="gameInfoDeleteBtn" type="button" class="danger">Delete game</button>
+        </div></details>
         <button id="gameInfoCloseBtn"><i data-lucide="x"></i> Close</button>
       </div>
     </div>
+  </div>
   </div>

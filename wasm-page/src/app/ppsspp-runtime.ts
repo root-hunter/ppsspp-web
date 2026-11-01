@@ -22,6 +22,7 @@ import {
   RadioTower,
   RefreshCw,
   Save,
+  Search,
   Server,
   Settings,
   Terminal,
@@ -52,6 +53,7 @@ const PPSSPP_ICONS = {
   RadioTower,
   RefreshCw,
   Save,
+  Search,
   Server,
   Settings,
   Terminal,
@@ -59,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-network-nickname-v2';
+const RUNTIME_ASSET_VERSION = '2026-11-01-console-collections-v2';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -75,6 +77,7 @@ export class PpssppRuntime {
     createIcons({ icons: PPSSPP_ICONS });
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
+    await this.loadScript(`console-ui.js?v=${RUNTIME_ASSET_VERSION}`, 'console-ui');
     setupNetworkInvites(this.document);
   }
 

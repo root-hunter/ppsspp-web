@@ -249,7 +249,7 @@ test('failed OPFS deletion remains dirty so a later sync retries it', async () =
 
 test('settings recovery backs up configs and preserves saves and controller mappings', async () => {
   const deleted = [], backups = [];
-  const ctx = load(['resetEmulatorSettings'], {
+  const ctx = load(['resetEmulatorSettings', 'confirmUI'], {
     started: false, runtimeFailed: false, runtimeReady: false, confirm: () => true, persistQueue: Promise.resolve(), OPFS_PERSIST_DIR: 'persist',
     opfsWalk: async () => ['ppsspp.ini', 'GAME123.ini', 'controls.ini'].map(name => ({ path: '/root/PSP/SYSTEM/' + name })).concat([{ path: '/root/PSP/SAVEDATA/GAME/DATA.BIN' }]),
     opfsRead: async () => new Uint8Array([1]), opfsPut: async path => backups.push(path), opfsDelete: async path => deleted.push(path),
@@ -297,7 +297,7 @@ test('failed preload never releases the dependency and starts the core without i
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: dep => removed.push(dep),
@@ -321,7 +321,7 @@ test('direct game launch also runs library automount before releasing startup', 
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
@@ -537,4 +537,100 @@ test('saved game overrides cannot replace the Network nickname at multiplayer st
   files.set(dir + 'ULES01376_ppsspp.ini', original);
   await ctx.syncGameNetworkNicknames(FS, '/config');
   assert.equal(files.get(dir + 'ULES01376_ppsspp.ini'), original);
+});
+
+function psfStrings(fields) {
+  const encoder = new TextEncoder();
+  const entries = Object.entries(fields).map(([key, value]) => ({ key: encoder.encode(key + '\0'), value: encoder.encode(value + '\0') }));
+  const keyStart = 20 + entries.length * 16;
+  const dataStart = keyStart + entries.reduce((sum, entry) => sum + entry.key.length, 0);
+  const bytes = new Uint8Array(dataStart + entries.reduce((sum, entry) => sum + entry.value.length, 0));
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x46535000, true); view.setUint32(8, keyStart, true); view.setUint32(12, dataStart, true); view.setUint32(16, entries.length, true);
+  let keyPos = 0, dataPos = 0;
+  entries.forEach((entry, i) => {
+    const offset = 20 + i * 16;
+    view.setUint16(offset, keyPos, true); view.setUint16(offset + 2, 0x0204, true);
+    view.setUint32(offset + 4, entry.value.length, true); view.setUint32(offset + 8, entry.value.length, true); view.setUint32(offset + 12, dataPos, true);
+    bytes.set(entry.key, keyStart + keyPos); bytes.set(entry.value, dataStart + dataPos);
+    keyPos += entry.key.length; dataPos += entry.value.length;
+  });
+  return bytes;
+}
+
+test('PSP metadata reads titles, slot descriptions and disc IDs and rejects invalid extents', () => {
+  const ctx = load(['parsePsfString', 'parsePsfTitle']);
+  const data = psfStrings({ TITLE: 'A game é', DISC_ID: 'ULUS10041', SAVEDATA_TITLE: 'Profile 1', SAVEDATA_DETAIL: 'Race 3' });
+  assert.equal(ctx.parsePsfTitle(data), 'A game é');
+  assert.equal(ctx.parsePsfString(data, 'DISC_ID'), 'ULUS10041');
+  assert.equal(ctx.parsePsfString(data, 'SAVEDATA_TITLE'), 'Profile 1');
+  assert.equal(ctx.parsePsfString(data, 'UNKNOWN'), '');
+  for (const length of [0, 8, 19, 22]) assert.equal(ctx.parsePsfTitle(data.slice(0, length)), '');
+  const broken = data.slice(); new DataView(broken.buffer).setUint32(32, 0xffffffff, true);
+  assert.equal(ctx.parsePsfTitle(broken), '');
+});
+
+test('save collection groups native slots and states under the game title and icon without counting previews as slots', () => {
+  const ctx = load(['saveGameId', 'buildSaveCollection', 'parsePsfString', 'saveCollectionSummary'], { toDataURL: (data, ext) => 'image:' + ext });
+  const file = (name, size, data) => ({ name, path: '/states/' + name, size, data });
+  const groups = ctx.buildSaveCollection([
+    { game: 'ULUS10041PROFILE1', flat: false, slotDir: '/data/ULUS10041PROFILE1', files: [file('PARAM.SFO', 40, psfStrings({ TITLE: 'WipEout Pure', SAVEDATA_TITLE: 'Profile 1', SAVEDATA_DETAIL: 'Race 3' })), file('ICON0.PNG', 10, new Uint8Array([1])), file('DATA.BIN', 50, new Uint8Array([2]))] },
+    { game: 'ULUS10041PROFILE2', flat: false, slotDir: '/data/ULUS10041PROFILE2', files: [file('PARAM.SFO', 40, psfStrings({ TITLE: 'WipEout Pure', SAVEDATA_TITLE: 'Profile 2' }))] },
+    { game: 'ULUS10041_1.00', flat: true, slotDir: '/states', files: [file('ULUS10041_1.00_0.ppst', 100, new Uint8Array([1])), file('ULUS10041_1.00_0.jpg', 25, new Uint8Array([2])), file('ULUS10041_1.00_1.ppst', 200, new Uint8Array([3])), file('orphan.jpg', 77, new Uint8Array([4]))] },
+  ]);
+  assert.equal(groups.length, 1);
+  const group = groups[0];
+  assert.equal(group.title, 'WipEout Pure'); assert.equal(group.id, 'ULUS10041');
+  assert.equal(group.dataCount, 2); assert.equal(group.stateCount, 2); assert.equal(group.slots.length, 4);
+  assert.equal(group.size, 465); assert.equal(group.icon, 'image:png');
+  assert.equal(ctx.saveCollectionSummary(group), '2 saves · 2 states');
+  const state = group.slots.find(slot => slot.title === 'State 1');
+  assert.deepEqual(Array.from(state.paths), ['/states/ULUS10041_1.00_0.ppst', '/states/ULUS10041_1.00_0.jpg']);
+  assert.equal(group.slots[0].description, 'Race 3');
+});
+
+test('state-only collections use matching library metadata and never pair previews across storage roots', () => {
+  const ctx = load(['saveGameId', 'buildSaveCollection', 'parsePsfString'], { toDataURL: () => 'image' });
+  const groups = ctx.buildSaveCollection([
+    { game: 'ULES00001_1.00', flat: true, slotDir: '/root1/states', files: [{ name: 'ULES00001_1.00_0.ppst', path: '/root1/states/ULES00001_1.00_0.ppst', size: 100 }, { name: 'ULES00001_1.00_0.png', path: '/root2/states/ULES00001_1.00_0.png', size: 10, data: new Uint8Array([1]) }] },
+  ], [{ discId: 'ULES00001', title: 'Lumines', fileName: 'lumines.iso', coverType: 'image/png' }]);
+  assert.equal(groups[0].title, 'Lumines');
+  assert.equal(groups[0].size, 100); assert.equal(groups[0].slots[0].paths.length, 1);
+  assert.equal(groups[0].fileName, 'lumines.iso');
+});
+
+test('save slot export uses the current live bytes instead of an older persisted copy', async () => {
+  let exported;
+  const ctx = load(['downloadSaveSlot'], {
+    buildSaveFileMap: async () => new Map([
+      ['/save/DATA.BIN', { path: '/save/DATA.BIN', data: new Uint8Array([9]) }],
+      ['/other/DATA.BIN', { path: '/other/DATA.BIN', data: new Uint8Array([1]) }],
+    ]),
+    bytesToBase64: data => Buffer.from(data).toString('base64'),
+    triggerDownload: blob => { exported = blob; }, log() {}, showToast() {},
+  });
+  await ctx.downloadSaveSlot('/save', 'Profile');
+  const bundle = JSON.parse(await exported.text());
+  assert.equal(bundle.files.length, 1); assert.equal(bundle.files[0].data, 'CQ==');
+});
+
+test('PBP library metadata reads only the header, PARAM.SFO and embedded game icon', async () => {
+  const reads = [];
+  class TrackedBlob extends Blob {
+    slice(start, end) { reads.push([start, end]); return super.slice(start, end); }
+  }
+  const sfo = psfStrings({ TITLE: 'Homebrew title', DISC_ID: 'TEST00001' });
+  const icon = new Uint8Array([137, 80, 78, 71]);
+  const header = new Uint8Array(40), view = new DataView(header.buffer);
+  view.setUint32(0, 0x50425000, true);
+  [40, 40 + sfo.length, 40 + sfo.length + icon.length, 40 + sfo.length + icon.length, 40 + sfo.length + icon.length, 40 + sfo.length + icon.length, 40 + sfo.length + icon.length, 40 + sfo.length + icon.length].forEach((value, i) => view.setUint32(8 + i * 4, value, true));
+  const ctx = load(['extractPbpMetadata', 'parsePsfString', 'parsePsfTitle'], { extractIsoMetadata: name => ({ fileName: name, title: name, coverType: '' }) });
+  const meta = await ctx.extractPbpMetadata('EBOOT.PBP', new TrackedBlob([header, sfo, icon, new Uint8Array(1024 * 1024)]));
+  assert.equal(meta.title, 'Homebrew title'); assert.equal(meta.discId, 'TEST00001');
+  assert.equal(meta.coverType, 'image/png'); assert.deepEqual(Array.from(meta.coverBytes), Array.from(icon));
+  assert.deepEqual(reads, [[0, 40], [40, 40 + sfo.length], [40 + sfo.length, 40 + sfo.length + icon.length]]);
+  const bad = header.slice(); new DataView(bad.buffer).setUint32(12, 0xffffffff, true);
+  reads.length = 0;
+  assert.equal((await ctx.extractPbpMetadata('bad.pbp', new TrackedBlob([bad, sfo, icon]))).title, 'bad.pbp');
+  assert.deepEqual(reads, [[0, 40]]);
 });

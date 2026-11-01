@@ -135,12 +135,14 @@ def generate_self_signed_cert(cert_file, key_file):
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     web_root = os.path.dirname(script_dir)
-    default_wasm_root = os.path.abspath(os.path.join(web_root, "..", "ppsspp-wasm"))
+    default_wasm_root = os.path.join(web_root, "deps", "ppsspp-wasm")
+    if not os.path.isdir(default_wasm_root):
+        default_wasm_root = os.path.abspath(os.path.join(web_root, "..", "ppsspp-wasm"))
     if not os.path.isdir(default_wasm_root):
         default_wasm_root = web_root
 
     parser = argparse.ArgumentParser(description="Serve PPSSPP wasm with pthread-compatible headers.")
-    parser.add_argument("--bind", "--address", dest="bind", default="192.168.1.170")
+    parser.add_argument("--bind", "--address", dest="bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--https", action="store_true", help="Enable HTTPS (TLS)")
     parser.add_argument("--cert", default="cert.pem", help="TLS certificate file (PEM)")
@@ -181,9 +183,9 @@ def main():
         if ctx:
             adhoc_server.socket = ctx.wrap_socket(adhoc_server.socket, server_side=True, do_handshake_on_connect=False)
         threading.Thread(target=adhoc_server.serve_forever, name="AdhocWebSocketServer", daemon=True).start()
-        print(f"Adhoc WebSocket lobby on {'wss' if ctx else 'ws'}://{args.bind}:{args.adhoc_ws_port}/", flush=True)
+        print(f"Adhoc WebSocket lobby on {'wss' if ctx else 'ws'}://{args.bind}:{adhoc_server.server_address[1]}/", flush=True)
 
-    print(f"Serving on {scheme}://{args.bind}:{args.port}/", flush=True)
+    print(f"Serving on {scheme}://{args.bind}:{server.server_address[1]}/", flush=True)
     print(f"  web root:  {web_root}", flush=True)
     print(f"  wasm root: {wasm_root}", flush=True)
     def stop_signal(signum, frame):

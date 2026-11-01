@@ -63,7 +63,8 @@ export function setupNetworkInvites(document: Document): void {
     try { await navigator.clipboard.writeText(link.value); status.textContent = 'Invitation copied.'; }
     catch { link.focus(); link.select(); status.textContent = 'Copy the selected invitation link.'; }
   });
-  node('networkInviteImportBtn').addEventListener('click', () => {
+  node('networkInviteImportForm').addEventListener('submit', event => {
+    event.preventDefault();
     try { accept(node<HTMLInputElement>('networkInviteImportInput').value); }
     catch (error) { report(error); }
   });
