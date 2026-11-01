@@ -219,6 +219,10 @@ checkout path or toolchain installation. Development builds also keep LTO disabl
 A successful compile or emulator UI startup does not establish game-launch
 stability. Re-enabling LTO requires reproducing and resolving the reported freeze.
 
+## Shared Sessions
+
+Stream game audio/video to guests in the same relay room, optionally assigning remote keyboard/gamepad control without a guest game download. Setup, permissions, limitations and tests: [docs/shared-sessions.md](docs/shared-sessions.md).
+
 ## Browser multiplayer
 
 The WSS Ad Hoc relay, configuration, protocol tests and Tekken 6 validation checklist are described in [docs/multiplayer.md](docs/multiplayer.md). Transport validation and unverified gameplay criteria are recorded separately in [docs/multiplayer-validation.md](docs/multiplayer-validation.md).

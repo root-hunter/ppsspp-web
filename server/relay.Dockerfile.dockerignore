@@ -3,3 +3,5 @@
 !relay.py
 !relay_auth.py
 !relay_admin.py
+!shared_sessions.py
+!demo_archive.py

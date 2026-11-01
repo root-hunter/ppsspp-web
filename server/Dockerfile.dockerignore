@@ -8,3 +8,5 @@
 wasm-page/.angular/
 wasm-page/dist/
 wasm-page/node_modules/
+!server/shared_sessions.py
+!server/demo_archive.py

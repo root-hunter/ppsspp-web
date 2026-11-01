@@ -55,6 +55,28 @@
       </div>
     </section>
 
+    <!-- Shared player -->
+    <section id="sharedPlayer" class="shared-player" aria-label="Remote game session" hidden>
+      <div class="shared-player-toolbar">
+        <button id="sharedBack" type="button" aria-label="Back to Shared Sessions">‹ <span>Sessions</span></button>
+        <div class="shared-player-title"><strong id="sharedPlayerTitle">Shared session</strong><span id="sharedControlStatus" role="status">Watching · host controls the game</span></div>
+        <div class="shared-player-actions"><button id="sharedPlay" type="button" aria-label="Enable audio">Sound off</button><button id="sharedTouchToggle" type="button" aria-pressed="false">Touch controls</button><button id="sharedFullscreen" type="button" aria-label="Enter fullscreen">Fullscreen</button><button id="sharedLeave" type="button">Leave</button></div>
+      </div>
+      <div class="shared-video-frame" id="sharedVideoSurface">
+        <video id="sharedVideo" autoplay muted playsinline tabindex="0" aria-label="Remote game; keyboard, controller and touch input"></video>
+        <button id="sharedHud" class="shared-hud-toggle" type="button" aria-label="Show player controls" aria-expanded="false" hidden>···</button>
+        <p id="sharedPlayerStatus" class="shared-player-status" role="status">Connecting stream…</p>
+        <div id="sharedTouchControls" class="shared-touch-controls" aria-label="PSP touch controls" hidden>
+          <div class="shared-touch-shoulders"><button data-shared-key="KeyQ" aria-label="L trigger">L</button><button data-shared-key="KeyW" aria-label="R trigger">R</button></div>
+          <div class="shared-touch-left"><div class="shared-dpad"><button class="pad-up" data-shared-key="ArrowUp" aria-label="Up">▲</button><button class="pad-left" data-shared-key="ArrowLeft" aria-label="Left">◀</button><button class="pad-right" data-shared-key="ArrowRight" aria-label="Right">▶</button><button class="pad-down" data-shared-key="ArrowDown" aria-label="Down">▼</button></div><div id="sharedAnalog" class="shared-analog" role="group" aria-label="Analog stick"><span></span></div></div>
+          <div class="shared-face-buttons"><button class="face-top" data-shared-key="KeyS" aria-label="Triangle">△</button><button class="face-left" data-shared-key="KeyA" aria-label="Square">□</button><button class="face-right" data-shared-key="KeyX" aria-label="Circle">○</button><button class="face-bottom" data-shared-key="KeyZ" aria-label="Cross">×</button></div>
+          <div class="shared-touch-system"><button data-shared-key="Enter">SELECT</button><button data-shared-key="Space">START</button></div>
+        </div>
+      </div>
+      <div class="shared-player-footer"><span id="sharedPlayerHint">Live stream · no download needed</span><button id="sharedPlayerDetails" type="button" aria-expanded="false">Connection info</button><p id="sharedPlayerDiagnostic" hidden></p></div>
+    </section>
+    <!-- End shared player -->
+
     <section id="sidePanel" class="console-dashboard" aria-label="Console dashboard">
       <div class="console-atmosphere" aria-hidden="true">
         <div class="atmosphere-light"></div>
@@ -68,7 +90,8 @@
         <button type="button" class="tab active" data-tab="library" aria-current="page"><i data-lucide="gamepad-2"></i> Library</button>
         <button type="button" class="tab"        data-tab="saves"><i data-lucide="save"></i> Saves</button>
         <button type="button" class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</button>
-        <button type="button" class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</button>
+        <button type="button" class="tab"        data-tab="shared"><i data-lucide="monitor"></i> Shared Sessions</button>
+        <button type="button" class="tab" data-tab="drive"><i data-lucide="cloud"></i> Drive</button>
         <button type="button" class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> Storage</button>
         <button type="button" class="tab"        data-tab="info"><i data-lucide="settings"></i> System</button>
         <button type="button" class="tab"        data-tab="log"><i data-lucide="terminal"></i> Logs</button>
@@ -221,6 +244,20 @@
             <p id="networkInviteStatus" role="status"></p>
           </details>
           <details class="network-diagnostics"><summary>Technical diagnostics</summary><pre id="networkDiagnostics" aria-live="polite">No game connection has been started.</pre></details>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tabShared">
+        <div class="shared-panel">
+          <div class="collection-heading"><div><span class="shared-eyebrow">PLAY TOGETHER</span><h1>Shared Sessions</h1><p>One game. Your friends, wherever they play.</p></div><div class="shared-actions"><button id="sharedConnect" class="primary" type="button">Connect to relay</button><button id="sharedDisconnect" type="button" disabled>Disconnect</button></div></div>
+          <div class="shared-connection"><span class="shared-live-dot"></span><p id="sharedStatus" role="status" aria-live="polite">Connect to discover sessions in your Network room.</p><button id="sharedResume" type="button" hidden>Return to stream</button></div>
+          <section class="shared-discovery" aria-labelledby="sharedDiscoveryTitle"><div class="shared-section-heading"><h2 id="sharedDiscoveryTitle">Live in your room</h2><span>Watch or take the controls</span></div><div id="sharedList" class="shared-session-list" aria-live="polite">Your friends’ sessions will appear here.</div></section>
+          <details class="shared-host-card" open><summary><span><strong>Share your game</strong><small>Stream from this device to your room</small></span><span aria-hidden="true">＋</span></summary><div class="shared-host-body">
+            <div class="shared-host-fields"><label class="network-field"><span>Session title</span><input id="sharedTitle" maxlength="100" placeholder="Current game"></label><label class="network-field"><span>Who can play?</span><select id="sharedMode"><option value="watch">Watch only</option><option value="play">Remote play · assign control</option></select></label></div>
+            <div class="shared-actions"><button id="sharedPublish" type="button" class="primary" disabled>Start sharing</button><button id="sharedStop" type="button" disabled>Stop / leave session</button></div>
+            <p class="shared-help">Keep playing locally while friends watch. With Remote play, you choose who controls your PSP.</p><div id="sharedMembers" aria-label="Session guests"></div>
+          </div></details>
+          <details class="shared-technical"><summary>Connection details</summary><p id="sharedMediaStatus" role="status"></p><p>Uses the relay and room saved in Network. Guests need no game download. Up to four guests share the host’s PSP.</p></details>
         </div>
       </div>
 

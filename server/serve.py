@@ -36,6 +36,7 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         "/ppsspp-runtime.js",
         "/demo-library.js",
         "/adhoc-transport.js",
+        "/shared-sessions.js",
         "/sw.js",
     }
 

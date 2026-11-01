@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v29-static-demo-downloads";
+const CACHE_VERSION = "ppsspp-angular-v35-shared-player";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -21,6 +21,7 @@ const SHELL_FILES = [
   "./demo-library.js",
   "./demo-catalog.json",
   "./adhoc-transport.js",
+  "./shared-sessions.js",
 ];
 
 // Extensions considered immutable build artifacts → cache-first
@@ -65,6 +66,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/manifest.webmanifest") ||
                   pathname.endsWith("/ppsspp-runtime.js") ||
                   pathname.endsWith("/console-ui.js") ||
+                  pathname.endsWith("/shared-sessions.js") ||
                   pathname.endsWith("/demo-library.js") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");

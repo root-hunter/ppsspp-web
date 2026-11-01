@@ -294,6 +294,7 @@ test('failed preload never releases the dependency and starts the core without i
   const failures = [], removed = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    installSharedCanvasContext() {},
     ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
@@ -319,6 +320,7 @@ test('direct game launch also runs library automount before releasing startup', 
   const events = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    installSharedCanvasContext() {},
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
@@ -1048,4 +1050,73 @@ test('static demo cards download the official ZIP and offer import; installed de
   vm.runInContext('demoInstalled.clear(); demoGateway = true;', ctx);
   ctx.renderDemos();
   assert(elements.get('demoGrid').innerHTML.includes('Install demo'));
+});
+
+test('shared sessions keep the emulator live in the dashboard without enabling Ad Hoc', () => {
+  let pauses = 0;
+  const ctx = load(['syncMenuSuspension', 'sessionIsMultiplayer'], {
+    runtimeReady: true, runtimeFailed: false, networkActiveConfig: { enabled: false },
+    window: { __ppssppSharing: true, Module: { runtimeKeepalivePush() {}, runtimeKeepalivePop() {}, pauseMainLoop() { pauses++; }, resumeMainLoop() {} } },
+    document: { body: { classList: { contains: n => n === 'emulator-started', remove() {} } } },
+    captureSessionPreview() {}, updateSessionDock() {}, clearTimeout() {},
+  }, 'let menuSuspended = false, menuResumeTimer = null;');
+  ctx.syncMenuSuspension(true);
+  assert.equal(pauses, 0);
+});
+
+test('audio capture mirrors speaker output while preserving local audio and intermediate routing', () => {
+  const connections = [];
+  class AudioNode {
+    constructor(context) { this.context = context; }
+    connect(destination, ...ports) { connections.push({ source: this, destination, ports }); return destination; }
+  }
+  class AudioContext {
+    constructor() { this.destination = { speaker: true }; }
+    createMediaStreamDestination() { return { capture: true }; }
+    addEventListener() {}
+  }
+  const window = { AudioNode, AudioContext };
+  const ctx = load(['installAudioContextTracking'], { window, AudioNode, log() {} }, 'const trackedAudioContexts = [];');
+  ctx.installAudioContextTracking(); ctx.installAudioContextTracking();
+  const audio = new window.AudioContext();
+  const sourceNode = new AudioNode(audio), gain = new AudioNode(audio);
+  sourceNode.connect(gain); gain.connect(audio.destination);
+  assert.equal(connections.length, 3);
+  assert.equal(connections[0].destination, gain);
+  assert.equal(connections[1].destination, audio.destination);
+  assert.equal(connections[2].destination, audio.__ppssppCaptureDestination);
+});
+
+
+test('stream capture applies context attributes to the actual SDL canvas, preserving other options', () => {
+  const calls = [], gl = {};
+  const canvas = { getContext(type, options) { calls.push({ type, options }); return gl; } };
+  const ctx = load(['installSharedCanvasContext']);
+  ctx.installSharedCanvasContext(canvas); ctx.installSharedCanvasContext(canvas);
+  canvas.getContext('webgl2', { alpha: false, depth: true, preserveDrawingBuffer: false, desynchronized: true });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.preserveDrawingBuffer, true);
+  assert.equal(calls[0].options.desynchronized, false);
+  assert.equal(calls[0].options.alpha, false); assert.equal(calls[0].options.depth, true);
+  assert.equal(canvas.__ppssppStreamContext, gl);
+  const options = { alpha: true };
+  canvas.getContext('2d', options); assert.equal(calls[1].options, options);
+});
+
+test('remote screen touches preserve multiple fingers, positions and release events on the host canvas', () => {
+  const events = [], touches = new Map();
+  const window = { scrollX: 0, scrollY: 0 };
+  const canvas = { getBoundingClientRect: () => ({left:10,top:20,width:1000,height:500}),
+    dispatchEvent: event => { assert.equal(window.__ppssppRemoteTouch, true); events.push(event); } };
+  const ctx = load(['applySharedTouches'], { window, canvas, runtimeReady: true, runtimeFailed: false, sharedRemoteTouches: touches,
+    Touch: class { constructor(data) {Object.assign(this,data);} }, TouchEvent: class { constructor(type,data) {Object.assign(this,{type},data);} } });
+  ctx.applySharedTouches([{id:1,x:.25,y:.5},{id:2,x:.75,y:.25}]);
+  assert.equal(events[0].type,'touchstart'); assert.equal(events[0].touches.length,2);
+  assert.equal(events[0].changedTouches[0].clientX,260); assert.equal(events[0].changedTouches[0].clientY,270);
+  ctx.applySharedTouches([{id:2,x:.8,y:.25}]);
+  assert.equal(events[1].type,'touchend'); assert.equal(events[1].changedTouches[0].identifier,1);
+  assert.equal(events[2].type,'touchmove'); assert.equal(events[2].touches.length,1);
+  ctx.applySharedTouches([]);
+  assert.equal(events[3].type,'touchend'); assert.equal(events[3].touches.length,0);
+  assert.equal(touches.size,0); assert.equal(window.__ppssppRemoteTouch,false);
 });

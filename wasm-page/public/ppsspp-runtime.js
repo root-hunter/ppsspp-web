@@ -393,10 +393,10 @@ function releaseGameplayKeyboard() {
   } finally { gameplayKeys.clear(); window.__ppssppReleasingKeys = false; }
 }
 window.addEventListener("keydown", event => {
-  if (!document.body.classList.contains("panel-open") && document.activeElement === canvas && !["F1", "F11"].includes(event.key))
+  if (!window.__ppssppRemoteKey && !document.body.classList.contains("panel-open") && document.activeElement === canvas && !["F1", "F11"].includes(event.key))
     gameplayKeys.set(event.code || event.key, { key: event.key, code: event.code, keyCode: event.keyCode, which: event.which, location: event.location });
 }, true);
-window.addEventListener("keyup", event => gameplayKeys.delete(event.code || event.key), true);
+window.addEventListener("keyup", event => { if (!window.__ppssppRemoteKey) gameplayKeys.delete(event.code || event.key); }, true);
 
 let sessionGameName = "", sessionArtworkURL = "", sessionArtworkVersion = 0;
 function setSessionPresentation(name) {
@@ -466,7 +466,7 @@ function cacheSessionPreview(now = performance.now()) {
   sessionPreviewCapturedAt = now;
   captureSessionPreview();
 }
-function sessionIsMultiplayer() { return !!(networkActiveConfig || loadNetworkConfig()).enabled; }
+function sessionIsMultiplayer() { return !!window.__ppssppSharing || !!(networkActiveConfig || loadNetworkConfig()).enabled; }
 function updateSessionDock() {
   const dock = byId("sessionDock");
   if (!dock) return;
@@ -4026,12 +4026,24 @@ async function reportAudioStatus() {
 }
 
 function installAudioContextTracking() {
+  // Mirror actual speaker output, including SDL's worklet shim, into a capture bus.
+  if (window.AudioNode && !AudioNode.prototype.__ppssppCapturePatched) {
+    const connect = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function(destination, ...args) {
+      const result = connect.call(this, destination, ...args);
+      if (destination === this.context.destination && this.context.__ppssppCaptureDestination)
+        connect.call(this, this.context.__ppssppCaptureDestination, ...args);
+      return result;
+    };
+    AudioNode.prototype.__ppssppCapturePatched = true;
+  }
   for (const name of ["AudioContext", "webkitAudioContext"]) {
     const Orig = window[name];
     if (!Orig || Orig.__ppssppTracked) continue;
     function Tracked(...args) {
       const ctx = new Orig(...args);
       trackedAudioContexts.push(ctx);
+      ctx.__ppssppCaptureDestination = ctx.createMediaStreamDestination();
       log(name + " created: state=" + ctx.state + ", sampleRate=" + ctx.sampleRate);
       ctx.addEventListener?.("statechange", () => log(name + " state -> " + ctx.state));
       return ctx;
@@ -5216,12 +5228,13 @@ async function start() {
     installTouchMouseShim();
   }
 
+  installSharedCanvasContext(canvas);
   window.Module = {
     canvas,
     webglContextAttributes: {
       powerPreference: chosenPowerPref,
       alpha: false, antialias: false, depth: true, stencil: true,
-      preserveDrawingBuffer: false, desynchronized: true,
+      preserveDrawingBuffer: true, desynchronized: false,
       failIfMajorPerformanceCaveat: false,
     },
     SDL2: preAudioCtx ? { audioContext: preAudioCtx } : {},
@@ -5352,7 +5365,7 @@ function installTouchMouseShim() {
   }
 
   window.addEventListener('touchstart', (e) => {
-    if (!isCanvasTouch(e)) return;
+    if (window.__ppssppRemoteTouch || !isCanvasTouch(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     for (const t of e.changedTouches) {
@@ -5366,7 +5379,7 @@ function installTouchMouseShim() {
   }, opts);
 
   window.addEventListener('touchmove', (e) => {
-    if (!isCanvasTouch(e)) return;
+    if (window.__ppssppRemoteTouch || !isCanvasTouch(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     for (const t of e.changedTouches) {
@@ -5378,7 +5391,7 @@ function installTouchMouseShim() {
   }, opts);
 
   window.addEventListener('touchend', (e) => {
-    if (!isCanvasTouch(e)) return;
+    if (window.__ppssppRemoteTouch || !isCanvasTouch(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     for (const t of e.changedTouches) {
@@ -5391,7 +5404,7 @@ function installTouchMouseShim() {
   }, opts);
 
   window.addEventListener('touchcancel', (e) => {
-    if (!isCanvasTouch(e)) return;
+    if (window.__ppssppRemoteTouch || !isCanvasTouch(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     for (const t of e.changedTouches) {
@@ -5778,6 +5791,7 @@ function setFullscreenMenuOpen(open, focus = true) {
 on("fsMenuToggle", "click", () => setFullscreenMenuOpen(byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true"));
 on("fsMenuBackdrop", "click", () => setFullscreenMenuOpen(false));
 document.addEventListener("keydown", event => {
+  if (document.body.classList.contains("shared-playing")) return;
   if (document.querySelector(".console-dialog")) return;
   const panelOpen = document.body.classList.contains("panel-open");
   const menuOpen = byId("fsMenuToggle")?.getAttribute("aria-expanded") === "true";
@@ -5867,3 +5881,114 @@ if (menuMotionToggle) {
 }
 document.addEventListener("visibilitychange", () => document.body.classList.toggle("document-hidden", document.hidden));
 updateFullscreenControls();
+
+
+function installSharedCanvasContext(source) {
+  if (!source || source.__ppssppStreamContextInstalled) return;
+  const getContext = source.getContext.bind(source);
+  source.getContext = (type, attributes) => {
+    const webgl = ["webgl", "webgl2", "experimental-webgl"].includes(type);
+    const context = getContext(type, webgl ? { ...attributes, preserveDrawingBuffer: true, desynchronized: false } : attributes);
+    if (webgl && context) source.__ppssppStreamContext = context;
+    return context;
+  };
+  source.__ppssppStreamContextInstalled = true;
+}
+let sharedCaptureVideoTrack = null, sharedCapturePump = null, sharedCaptureFrames = 0, sharedCaptureError = "";
+
+const sharedRemoteTouches = new Map();
+function applySharedTouches(points) {
+  if (!runtimeReady || runtimeFailed || !canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const previous = [...sharedRemoteTouches.values()];
+  const next = points.map(point => ({ ...point }));
+  const ended = previous.filter(point => !next.some(p => p.id === point.id));
+  const started = next.filter(point => !sharedRemoteTouches.has(point.id));
+  const moved = next.filter(point => { const old = sharedRemoteTouches.get(point.id); return old && (old.x !== point.x || old.y !== point.y); });
+  const position = point => ({ clientX: rect.left + point.x * rect.width, clientY: rect.top + point.y * rect.height });
+  window.__ppssppRemoteTouch = true;
+  try {
+    if (typeof Touch === "function" && typeof TouchEvent === "function") {
+      const touch = point => { const p = position(point); return new Touch({ identifier: point.id, target: canvas, ...p,
+        pageX: p.clientX + (window.scrollX || 0), pageY: p.clientY + (window.scrollY || 0), radiusX: 4, radiusY: 4, force: .5 }); };
+      const emit = (type, changed, active) => {
+        if (!changed.length) return;
+        const touches = active.map(touch);
+        canvas.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, targetTouches: touches, changedTouches: changed.map(touch) }));
+      };
+      emit("touchend", ended, previous.filter(point => next.some(p => p.id === point.id)));
+      emit("touchstart", started, next);
+      emit("touchmove", moved, next);
+    } else {
+      const point = next[0] || previous[0];
+      if (point) {
+        const p = position(point);
+        canvas.dispatchEvent(new MouseEvent("mousemove", { ...p, bubbles: true, buttons: next.length ? 1 : 0 }));
+        if (!previous.length && next.length) canvas.dispatchEvent(new MouseEvent("mousedown", { ...p, bubbles: true, button: 0, buttons: 1 }));
+        if (previous.length && !next.length) canvas.dispatchEvent(new MouseEvent("mouseup", { ...p, bubbles: true, button: 0, buttons: 0 }));
+      }
+    }
+  } finally { window.__ppssppRemoteTouch = false; sharedRemoteTouches.clear(); for (const point of next) sharedRemoteTouches.set(point.id, point); }
+}
+
+// Narrow bridge for streaming: guests never mount or download the host game.
+window.PPSSPPSharedBridge = {
+  config: loadNetworkConfig,
+  title: () => byId("sessionTitle")?.textContent || "PPSSPP",
+  gamepads: () => Array.from(nativeGetGamepads?.() || []),
+  sharing(active) {
+    const wasSharing = window.__ppssppSharing;
+    window.__ppssppSharing = active;
+    if (!active) { clearInterval(sharedCapturePump); sharedCapturePump = null; sharedCaptureVideoTrack = null; }
+    if (active && menuSuspended && !runtimeFailed) {
+      window.Module.resumeMainLoop(); menuSuspended = false;
+      menuKeepaliveRelease?.(); menuKeepaliveRelease = null;
+      document.body.classList.remove("session-suspended", "session-resuming");
+      void unlockAudio();
+    }
+    if (wasSharing && !active) syncMenuSuspension(document.body.classList.contains("panel-open"));
+    updateSessionDock();
+  },
+  async capture() {
+    if (!runtimeReady || runtimeFailed || !canvas?.captureStream)
+      throw new Error("Start a game on this device before sharing");
+    const ctx = window.Module?.SDL2?.audioContext || trackedAudioContexts[trackedAudioContexts.length - 1];
+    if (!ctx?.__ppssppCaptureDestination) throw new Error("Game audio capture is not ready");
+    await ctx.resume();
+    const output = document.createElement("canvas");
+    output.width = canvas.width; output.height = canvas.height;
+    const context = output.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Video capture canvas is unavailable");
+    const media = output.captureStream(30);
+    clearInterval(sharedCapturePump);
+    const videoTrack = sharedCaptureVideoTrack = media.getVideoTracks()[0];
+    sharedCaptureFrames = 0; sharedCaptureError = "";
+    let timer;
+    const pump = () => {
+      if (videoTrack?.readyState !== "live") { clearInterval(timer); return; }
+      try {
+        if (output.width !== canvas.width) output.width = canvas.width;
+        if (output.height !== canvas.height) output.height = canvas.height;
+        context.drawImage(canvas, 0, 0);
+        videoTrack.requestFrame?.(); sharedCaptureFrames++;
+      } catch (error) { sharedCaptureError = error.message; }
+    };
+    pump();
+    timer = sharedCapturePump = setInterval(pump, 33);
+    for (const track of ctx.__ppssppCaptureDestination.stream.getAudioTracks()) media.addTrack(track.clone());
+    return media;
+  },
+  captureState: () => ({ width: canvas?.width, height: canvas?.height,
+    track: sharedCaptureVideoTrack?.readyState || "none", frames: sharedCaptureFrames, error: sharedCaptureError,
+    preserveDrawingBuffer: canvas?.__ppssppStreamContext?.getContextAttributes()?.preserveDrawingBuffer ?? null }),
+  touches: applySharedTouches,
+  key(code, mapping, down) {
+    if (!runtimeReady || runtimeFailed) return;
+    const event = new KeyboardEvent(down ? "keydown" : "keyup", {
+      code, key: mapping[0], keyCode: mapping[1], which: mapping[1], bubbles: true, cancelable: true,
+    });
+    // Only the allowlisted bridge caller can inject gameplay past dashboard navigation.
+    window.__ppssppRemoteKey = true;
+    try { canvas.dispatchEvent(event); } finally { window.__ppssppRemoteKey = false; }
+  },
+};

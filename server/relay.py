@@ -21,6 +21,7 @@ import time
 import random
 from urllib.parse import parse_qs, urlparse
 from relay_auth import RelayAuth, AuthError
+from shared_sessions import SharedSessions
 
 MAX_PACKET = 65535 + 64
 MAX_QUEUE = 1024 * 1024
@@ -89,6 +90,7 @@ class AdhocUser:
 class AdhocLobby:
     def __init__(self):
         self.lock = threading.RLock()
+        self.shared = SharedSessions()
         self.users = {}  # capability -> current control connection
         self.endpoints = set()
         self.udp = {}
@@ -290,6 +292,9 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             self._handshake()
             self.writer = threading.Thread(target=self._write_loop, daemon=True)
             self.writer.start()
+            if self.mode == 'sessions':
+                with self.lobby.lock:
+                    self.lobby.shared.ready(self, ice_servers(self))
             if self.mode == 'signal':
                 self.send_json(dict(type='hello', version=1, iceServers=ice_servers(self.owner)))
                 with self.lobby.lock:
@@ -313,6 +318,8 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         finally:
             self.stop()
             with self.lobby.lock:
+                if self.mode == 'sessions' and hasattr(self, 'share_id'):
+                    self.lobby.shared.remove(self)
                 if self.user:
                     self.lobby.remove(self.user)
                 self.lobby.endpoints.discard(self)
@@ -377,7 +384,16 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             raise ProtocolError('relay v1 capability required')
         route = parsed.path.removeprefix('/adhoc').rstrip('/')
         with self.lobby.lock:
-            if route == '':
+            if route == '/sessions':
+                room = params.get('room', ['public'])[0]
+                if not re.fullmatch('[A-Za-z0-9_-]{1,32}', room):
+                    raise ProtocolError('invalid room')
+                self.mode = 'sessions'
+                self.ip = secrets.token_hex(8)
+                self.signal_budget = 256.0
+                self.signal_updated = time.monotonic()
+                self.lobby.shared.add(self, room, params.get('name', ['Player'])[0])
+            elif route == '':
                 room = params.get('room', ['public'])[0]
                 if not re.fullmatch('[A-Za-z0-9_-]{1,32}', room):
                     raise ProtocolError('invalid room')
@@ -558,13 +574,17 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 return
             if not data:  # WebSocket heartbeat
                 continue
-            if self.mode == 'signal':
+            if self.mode in ('signal', 'sessions'):
                 now = time.monotonic()
                 self.signal_budget = min(256, self.signal_budget + (now - self.signal_updated) * 64) - 1
                 self.signal_updated = now
                 if self.signal_budget < 0:
                     raise ProtocolError('signaling rate limit')
-                self.lobby.signal(self, data)
+                if self.mode == 'sessions':
+                    with self.lobby.lock:
+                        self.lobby.shared.message(self, data)
+                else:
+                    self.lobby.signal(self, data)
             elif self.mode == 'udp':
                 if len(data) < 7 or data[:3] != b'PU1':
                     raise ProtocolError('invalid datagram version')

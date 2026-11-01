@@ -472,7 +472,8 @@
   }));
   // Capture before SDL's window listeners; leave browser editing/default behavior intact.
   window.addEventListener('keydown', event => {
-    if (window.__ppssppNativeMenuKey) return;
+    if (body.classList.contains('shared-playing')) return;
+    if (window.__ppssppNativeMenuKey || window.__ppssppRemoteKey || document.activeElement?.id === 'sharedVideo' && !['Escape', 'Tab', 'F1', 'F10'].includes(event.key)) return;
     if (event.key === 'F10' || (event.key === 'Escape' && body.classList.contains('immersive-fullscreen') && !uiOpen())) { event.preventDefault(); event.stopImmediatePropagation(); void bridge.fullscreen(); return; }
     if (event.key === 'F1' && !dialog) { event.preventDefault(); event.stopImmediatePropagation(); bridge.setOpen(!body.classList.contains('panel-open')); return; }
     if (!uiOpen()) return;
@@ -493,11 +494,12 @@
     }
     if (event.defaultPrevented) event.stopImmediatePropagation();
   }, true);
-  document.addEventListener('keydown', event => { if (uiOpen()) event.stopPropagation(); });
-  window.addEventListener('keyup', event => { if (uiOpen() && !window.__ppssppReleasingKeys) event.stopImmediatePropagation(); }, true);
+  document.addEventListener('keydown', event => { if (uiOpen() && !window.__ppssppRemoteKey && !body.classList.contains('shared-playing')) event.stopPropagation(); });
+  window.addEventListener('keyup', event => { if (uiOpen() && !body.classList.contains('shared-playing') && !window.__ppssppReleasingKeys && !window.__ppssppRemoteKey && document.activeElement?.id !== 'sharedVideo') event.stopImmediatePropagation(); }, true);
   document.addEventListener('visibilitychange', () => { states.clear(); releaseGate = true; });
   function poll(now) {
     requestAnimationFrame(poll);
+    if (body.classList.contains('shared-playing') || document.activeElement?.id === 'sharedVideo') { states.clear(); releaseGate = true; window.__ppssppConsoleInputBlocked = true; return; }
     if (document.hidden || !document.hasFocus()) { states.clear(); releaseGate = true; inputDebug.focused = false; window.__ppssppConsoleInputBlocked = true; return; }
     const allPads = bridge.getGamepads().filter(pad => pad && pad.connected !== false);
     const selected = allPads.find(pad => pad.index === window.__ppssppActiveGamepadIndex);

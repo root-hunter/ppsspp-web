@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-controller-paging-fix-v8';
+const RUNTIME_ASSET_VERSION = '2026-11-01-shared-player-v6';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -79,6 +79,7 @@ export class PpssppRuntime {
     await this.loadScript(`demo-library.js?v=${RUNTIME_ASSET_VERSION}`, 'demo-library');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
     await this.loadScript(`console-ui.js?v=${RUNTIME_ASSET_VERSION}`, 'console-ui');
+    await this.loadScript(`shared-sessions.js?v=${RUNTIME_ASSET_VERSION}`, 'shared-sessions');
     setupNetworkInvites(this.document);
   }
 
