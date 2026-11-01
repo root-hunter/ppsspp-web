@@ -6,6 +6,10 @@ services:
       RELAY_AUTH_DB: /data/relay-auth.sqlite3
       RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
       RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
+      RELAY_STUN_URLS: ${RELAY_STUN_URLS:-}
+      RELAY_TURN_URLS: ${RELAY_TURN_URLS:-}
+      RELAY_TURN_SECRET: ${RELAY_TURN_SECRET:-}
+      RELAY_TURN_TTL: ${RELAY_TURN_TTL:-3600}
     volumes:
       - relay-auth:/data
     init: true

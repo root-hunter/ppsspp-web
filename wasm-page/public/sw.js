@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v12-network-status";
+const CACHE_VERSION = "ppsspp-angular-v13-hybrid-webrtc";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [

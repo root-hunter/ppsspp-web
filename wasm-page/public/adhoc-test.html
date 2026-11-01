@@ -6,7 +6,14 @@
 const params = new URLSearchParams(location.search);
 const build = new URL(params.get('build') || '/build-wasm-multiplayer/', location.href);
 const config = { enabled: true, endpoint: new URL('/adhoc', location.href).href, room: 'probe',
+  transport: params.get('transport') === 'hybrid' ? 'hybrid' : 'websocket',
   mac: params.get('mac') || '02:00:00:00:00:01' };
+// Test-only handles for deliberately failing the real ICE/DTLS connection.
+window.probePeerConnections = [];
+const BrowserPeerConnection = window.RTCPeerConnection;
+if (BrowserPeerConnection) window.RTCPeerConnection = class extends BrowserPeerConnection {
+  constructor(...args) { super(...args); window.probePeerConnections.push(this); }
+};
 var Module = {
   canvas: document.getElementById('canvas'),
   arguments: [],

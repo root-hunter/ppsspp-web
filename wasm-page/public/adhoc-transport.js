@@ -47,8 +47,18 @@
     let registered = false;
     let ephemeral = 49152;
     let timer = null;
+    // PDP is a datagram service. PTP deliberately stays on its reliable WSS
+    // stream: switching a live byte stream needs acknowledgement/replay.
+    const rtcPeers = new Map();
+    let signalSocket = null;
+    let signalTimeout = null;
+    let rtcSession = '';
+    let rtcConfig = null;
+    let rtcMembers = [];
     const stats = { state: 'idle', game: '', group: '', mac: cfg.mac, room: cfg.room, peers: [], pdpSent: 0, pdpReceived: 0,
       ptpSent: 0, ptpReceived: 0, ptpConnections: 0, rttMs: null, queueBytes: 0, errors: 0, lastError: '' };
+    stats.rtc = { state: cfg.transport === 'websocket' ? 'disabled' : 'unavailable', peers: [], sent: 0, received: 0,
+      websocketSent: 0, fallbacks: 0, dropped: 0, lastError: '' };
     const fail = (sock, message, errno = 53) => {
       sock.error = errno; stats.errors++; stats.lastError = message;
       if (sock === control) { registered = false; stats.state = 'disconnected'; }
@@ -56,6 +66,9 @@
       publish();
     };
     function publish() {
+      stats.rtc.peers = [...rtcPeers].map(([ip, p]) => ({ ip, state: p.pc.connectionState,
+        channel: p.channel.readyState, route: p.route || 'unknown', rttMs: p.rttMs ?? null }));
+      stats.rtc.queueBytes = [...rtcPeers.values()].reduce((n, p) => n + p.channel.bufferedAmount, 0);
       stats.peers = [...peers.values()];
       stats.ptp = [...sockets].filter(s => s.type === 1 && s !== control).map(s => ({
         port: s.sport, peer: s.daddr || null, peerPort: s.dport || null,
@@ -65,6 +78,184 @@
       stats.queueBytes = [...sockets].reduce((n, s) => n + (s.__relay?.ws?.bufferedAmount || 0) +
         s.recv_queue.reduce((m, p) => m + p.data.byteLength, 0), 0);
       onstatus({ ...stats });
+    }
+    function dropPeer(ip) {
+      const p = rtcPeers.get(ip);
+      if (!p) return;
+      rtcPeers.delete(ip); clearTimeout(p.timeout);
+      p.pc.onconnectionstatechange = p.pc.onicecandidate = null;
+      p.channel.onmessage = p.channel.onopen = p.channel.onclose = p.channel.onerror = null;
+      p.pc.close();
+    }
+    function stopRTC() {
+      const ws = signalSocket; signalSocket = null;
+      clearTimeout(signalTimeout); rtcConfig = null; rtcMembers = []; rtcSession = '';
+      for (const ip of [...rtcPeers.keys()]) dropPeer(ip);
+      if (ws) { ws.onclose = ws.onerror = ws.onmessage = null; ws.close(); }
+      stats.rtc.state = cfg.transport === 'websocket' ? 'disabled' : 'websocket';
+    }
+    function signalSend(message) {
+      if (signalSocket?.readyState !== WebSocket.OPEN) throw new Error('Signaling unavailable');
+      const bytes = encoder.encode(JSON.stringify(message));
+      if (bytes.length > 49152 || signalSocket.bufferedAmount + bytes.length > LIMIT) throw new Error('Signaling queue limit');
+      signalSocket.send(bytes);
+    }
+    function rtcFailure(ip, error) {
+      const p = rtcPeers.get(ip);
+      if (!p || p.failed) return;
+      p.failed = true; clearTimeout(p.timeout);
+      stats.rtc.fallbacks++; stats.rtc.lastError = String(error?.message || error);
+      // Keep the failed membership until it changes; no retry storm during play.
+      p.pc.onconnectionstatechange = null; p.pc.close(); publish();
+    }
+    function rtcPacket(ip, p, event) {
+      if (rtcPeers.get(ip) !== p || p.failed || !peers.has(ip) || !registered) return;
+      if (!(event.data instanceof ArrayBuffer) || event.data.byteLength < 8 || event.data.byteLength > 16384) {
+        rtcFailure(ip, 'Invalid WebRTC datagram'); return;
+      }
+      const data = new Uint8Array(event.data);
+      if (decoder.decode(data.subarray(0, 3)) !== 'PD1') { rtcFailure(ip, 'Invalid WebRTC protocol'); return; }
+      const view = new DataView(data.buffer);
+      const src = view.getUint16(3), dst = view.getUint16(5);
+      if (!src || !dst || data[7] !== 0) { rtcFailure(ip, 'Invalid WebRTC ports'); return; }
+      const sock = [...sockets].find(s => s.type === 2 && !s.__closed && !s.error && s.sport === dst);
+      if (sock) { receive(sock, data.subarray(8), ip, src); stats.pdpReceived++; stats.rtc.received++; }
+    }
+    function reconcileRTC() {
+      if (!rtcConfig) return;
+      const members = new Map(rtcMembers.map(p => [p.ip, p.session]));
+      for (const [ip, p] of rtcPeers) if (members.get(ip) !== p.session) dropPeer(ip);
+      for (const [ip, session] of members) {
+        if (rtcPeers.has(ip) || rtcPeers.size >= 16) continue;
+        let p, pc;
+        try {
+          pc = new RTCPeerConnection(rtcConfig);
+          // Negotiated ID avoids channel/open races and a second DCEP handshake.
+          const channel = pc.createDataChannel('ppsspp-pdp-v1', { negotiated: true, id: 0, ordered: false, maxRetransmits: 0 });
+          channel.binaryType = 'arraybuffer';
+          p = { pc, channel, session, chain: Promise.resolve(), candidates: [], failed: false };
+          rtcPeers.set(ip, p);
+          p.send = payload => {
+            if (rtcPeers.get(ip) !== p || p.failed) return;
+            signalSend({ type: 'signal', to: ip, session: rtcSession, targetSession: session, ...payload });
+          };
+          pc.onicecandidate = e => { try { p.send({ candidate: e.candidate?.toJSON() || null }); } catch (e) { rtcFailure(ip, e); } };
+          pc.onconnectionstatechange = () => {
+            if (pc.connectionState === 'failed' || pc.connectionState === 'closed') rtcFailure(ip, 'WebRTC connection failed');
+            publish();
+          };
+          channel.onmessage = e => rtcPacket(ip, p, e);
+          channel.onopen = () => { clearTimeout(p.timeout); publish(); };
+          channel.onclose = channel.onerror = () => rtcFailure(ip, 'WebRTC channel closed');
+          p.timeout = setTimeout(() => rtcFailure(ip, 'WebRTC negotiation timeout'), 10000);
+          // Exactly one offerer per pair. Queue ICE behind the remote SDP.
+          if (localIP < ip) p.chain = p.chain.then(async () => {
+            await pc.setLocalDescription(await pc.createOffer());
+            p.send({ description: pc.localDescription.toJSON() });
+          }).catch(e => { if (rtcPeers.get(ip) === p) rtcFailure(ip, e); });
+        } catch (e) { if (p) rtcFailure(ip, e); else { pc?.close(); stats.rtc.lastError = e.message; } }
+      }
+      publish();
+    }
+    function startRTC() {
+      if (cfg.transport === 'websocket' || typeof RTCPeerConnection !== 'function' || signalSocket) return;
+      stats.rtc.state = 'connecting';
+      let ws;
+      try { ws = new WebSocket(url('/signal', { mac: cfg.mac }), 'binary'); }
+      catch (e) { stats.rtc.lastError = e.message; stats.rtc.state = 'websocket'; return; }
+      signalSocket = ws; ws.binaryType = 'arraybuffer';
+      signalTimeout = setTimeout(() => { if (signalSocket === ws) { stats.rtc.lastError = 'Signaling timeout'; stopRTC(); publish(); } }, 10000);
+      ws.onerror = () => { stats.rtc.lastError = 'Signaling unavailable; using WebSocket'; };
+      ws.onclose = () => { if (signalSocket === ws) { stopRTC(); publish(); } };
+      ws.onmessage = e => {
+        try {
+          if (!(e.data instanceof ArrayBuffer) || e.data.byteLength > MAX_PACKET) throw new Error('Invalid signaling frame');
+          const m = JSON.parse(decoder.decode(e.data));
+          if (m.type === 'hello') {
+            if (m.version !== 1 || !Array.isArray(m.iceServers)) throw new Error('Unsupported signaling');
+            clearTimeout(signalTimeout); rtcConfig = { iceServers: m.iceServers, iceCandidatePoolSize: 0 };
+            stats.rtc.state = 'hybrid'; reconcileRTC();
+          } else if (m.type === 'peers') {
+            if (typeof m.session !== 'string' || !Array.isArray(m.peers) || m.peers.length > 512) throw new Error('Invalid peer list');
+            if (rtcSession !== m.session) for (const ip of [...rtcPeers.keys()]) dropPeer(ip);
+            rtcSession = m.session;
+            rtcMembers = m.peers.filter(p => /^10\.\d+\.\d+\.\d+$/.test(p.ip) && /^[a-f0-9]{32}$/.test(p.session));
+            reconcileRTC();
+          } else if (m.type === 'signal') {
+            const p = rtcPeers.get(m.sender);
+            if (!p || p.failed || p.session !== m.session || rtcSession !== m.targetSession) return;
+            p.chain = p.chain.then(async () => {
+              if (rtcPeers.get(m.sender) !== p || p.failed) return;
+              if (m.description) {
+                const offer = m.description.type === 'offer';
+                if (offer !== (localIP > m.sender)) throw new Error('Unexpected SDP role');
+                await p.pc.setRemoteDescription(m.description);
+                for (const candidate of p.candidates.splice(0)) await p.pc.addIceCandidate(candidate);
+                if (offer) {
+                  await p.pc.setLocalDescription(await p.pc.createAnswer());
+                  p.send({ description: p.pc.localDescription.toJSON() });
+                }
+              } else if ('candidate' in m) {
+                if (p.pc.remoteDescription) await p.pc.addIceCandidate(m.candidate);
+                else if (p.candidates.length < 256) p.candidates.push(m.candidate);
+                else throw new Error('ICE queue limit');
+              }
+            }).catch(e => { if (rtcPeers.get(m.sender) === p) rtcFailure(m.sender, e); });
+          }
+        } catch (e) { stats.rtc.lastError = e.message; stopRTC(); publish(); }
+      };
+    }
+    function sendPDP(sock, addr, port, data) {
+      const ready = ip => {
+        const p = rtcPeers.get(ip);
+        return p && !p.failed && peers.has(ip) && p.pc.connectionState === 'connected' &&
+          p.channel.readyState === 'open' && data.length + 8 <= Math.min(16384, p.pc.sctp?.maxMessageSize || 16384) &&
+          p.channel.bufferedAmount + data.length + 8 <= 65536 ? p : null;
+      };
+      const broadcast = addr === '255.255.255.255';
+      // Keep broadcast on the relay unless at least one recipient is direct.
+      const targets = broadcast && [...peers.keys()].some(ready) ? [...peers.keys()] : [addr];
+      // Preflight relay capacity before fanout so EAGAIN cannot duplicate data.
+      const fallback = targets.filter(ip => !ready(ip));
+      const ws = sock.__relay?.ws;
+      if (fallback.length && (!ws || ws.readyState !== WebSocket.OPEN ||
+          ws.bufferedAmount + fallback.reduce((n, ip) => n + 6 + encoder.encode(ip).length + data.length, 0) > LIMIT)) throw new FS.ErrnoError(6);
+      let packet, sent = false;
+      for (const ip of targets) {
+        const p = ready(ip);
+        if (p) {
+          if (!packet) {
+            packet = new Uint8Array(8 + data.length); packet.set([80, 68, 49]);
+            const v = new DataView(packet.buffer); v.setUint16(3, sock.sport); v.setUint16(5, port); packet.set(data, 8);
+          }
+          try { p.channel.send(packet); stats.rtc.sent++; sent = true; continue; }
+          catch (e) { rtcFailure(ip, e); }
+        }
+        try { safeSend(sock, ws, datagram(ip, port, data)); stats.rtc.websocketSent++; sent = true; }
+        catch (e) {
+          if (!sent) throw e;
+          // A broadcast already delivered to another peer cannot be retried as
+          // a whole on EAGAIN. A late route failure may drop this UDP recipient.
+          stats.rtc.dropped++;
+        }
+      }
+    }
+    function sampleRTC() {
+      for (const [ip, p] of rtcPeers) {
+        if (p.failed || p.sampling || p.pc.connectionState !== 'connected' || !p.pc.getStats) continue;
+        p.sampling = true;
+        p.pc.getStats().then(report => {
+          if (rtcPeers.get(ip) !== p) return;
+          let pair;
+          report.forEach(s => { if (s.type === 'transport' && s.selectedCandidatePairId) pair = report.get(s.selectedCandidatePairId); });
+          if (!pair) report.forEach(s => { if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') pair = s; });
+          if (pair) {
+            p.rttMs = typeof pair.currentRoundTripTime === 'number' ? Math.round(pair.currentRoundTripTime * 10000) / 10 : null;
+            const local = report.get(pair.localCandidateId), remote = report.get(pair.remoteCandidateId);
+            p.route = local?.candidateType === 'relay' || remote?.candidateType === 'relay' ? 'turn' : 'direct';
+          }
+        }).catch(() => {}).finally(() => { p.sampling = false; });
+      }
     }
     function url(path, params = {}) {
       const result = endpoint(cfg.endpoint);
@@ -117,6 +308,7 @@
       ws.onclose = () => {
         clearTimeout(timeout); sock.connecting = false;
         if (sock === control) {
+          stopRTC();
           registered = false; stats.state = 'disconnected'; peers.clear();
           for (const other of sockets) if (other !== control) other.__relay?.ws?.close();
         }
@@ -188,6 +380,7 @@
       if (data.length === 7 && decoder.decode(data.subarray(0, 3)) === 'PA1') {
         localIP = [...data.subarray(3)].join('.'); control.saddr = localIP; registered = true; stats.state = 'registered';
         for (const sock of sockets) { sock.saddr = localIP; if (sock !== control) openData(sock); }
+        startRTC();
         publish(); return;
       }
       // Observe actual PRO notifications without changing the HLE stream.
@@ -202,7 +395,9 @@
         if (p[0] === 2) {
           const ip = [...p.subarray(135, 139)].join('.');
           peers.set(ip, { ip, nick: decoder.decode(p.subarray(1, 129)).replace(/\0.*$/s, ''), mac: [...p.subarray(129, 135)].map(b => b.toString(16).padStart(2, '0')).join(':') });
-        } else if (p[0] === 3) peers.delete([...p.subarray(1, 5)].join('.'));
+        } else if (p[0] === 3) {
+          const ip = [...p.subarray(1, 5)].join('.'); peers.delete(ip); dropPeer(ip);
+        }
         controlRx = controlRx.slice(size);
       }
       receive(control, data, control.daddr, control.dport); publish();
@@ -272,7 +467,7 @@
         if (!sock.sport) allocate(sock);
         openData(sock); addr ??= sock.daddr; port ??= sock.dport;
         if (addr === undefined || !port) throw new FS.ErrnoError(17);
-        safeSend(sock, sock.__relay?.ws, datagram(String(addr), port, data)); stats.pdpSent++;
+        sendPDP(sock, String(addr), port, data); stats.pdpSent++;
       } else if (sock.__parent) {
         safeSend(sock, sock.__parent.__relay?.ws, stream(2, sock.__connId, data)); stats.ptpSent += length;
       } else {
@@ -280,7 +475,11 @@
         if (sock === control) {
           if (data[0] === 1 && data.length === 144) stats.game = decoder.decode(data.subarray(135, 144));
           if (data[0] === 2 && data.length === 9) stats.group = decoder.decode(data.subarray(1)).replace(/\0.*$/s, '');
-          if (data[0] === 3) { stats.group = ''; peers.clear(); }
+          if (data[0] === 2 || data[0] === 3) {
+            for (const ip of [...rtcPeers.keys()]) dropPeer(ip);
+            rtcMembers = []; peers.clear();
+            if (data[0] === 3) stats.group = '';
+          }
         } else stats.ptpSent += length;
       }
       return length;
@@ -320,6 +519,7 @@
       for (const child of sock.__accepted?.values() || []) { child.__closed = true; SOCKFS.emit('close', child.stream.fd); }
       sock.__accepted?.clear(); sock.pending.length = 0; sock.recv_queue.length = 0; sockets.delete(sock);
       if (sock === control) {
+        stopRTC();
         registered = false; control = null; stats.state = 'disconnected'; stats.game = ''; stats.group = ''; peers.clear();
         for (const s of [...sockets]) ops.close(s, true);
       }
@@ -335,6 +535,7 @@
     timer = setInterval(() => {
       publish();
       if (registered && ++ticks % 5 === 0) {
+        sampleRTC();
         const ping = new Uint8Array(11); ping.set([80, 82, 49]); new DataView(ping.buffer).setFloat64(3, performance.now());
         try { safeSend(control, control.__relay?.ws, ping); } catch (_) {}
       }

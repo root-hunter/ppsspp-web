@@ -1,0 +1,135 @@
+{
+  "passed": true,
+  "type": "protocol integration; not Tekken gameplay",
+  "realWasm": true,
+  "twoIsolatedContexts": true,
+  "origin": "https://127.0.0.1:18084",
+  "build": "/build-wasm-multiplayer/",
+  "headless": true,
+  "transportMode": "websocket",
+  "rtcValidation": null,
+  "browserRttMs": {
+    "samples": 100,
+    "p50": 2.2849999964237213,
+    "p95": 5.145000010728836,
+    "p99": 7.415000021457672,
+    "mean": 2.6575
+  },
+  "frontend": [
+    {
+      "enabled": true,
+      "hooked": true,
+      "build": "/build-wasm-multiplayer/",
+      "game": "./this.program",
+      "nativeConfig": {
+        "wlan": 1,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": false,
+      "settingsAppliedToCore": true
+    },
+    {
+      "enabled": false,
+      "hooked": false,
+      "build": "/build-wasm-multiplayer/",
+      "game": "/games/cube.cso",
+      "nativeConfig": {
+        "wlan": 0,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": true,
+      "settingsAppliedToCore": true
+    }
+  ],
+  "ptpSurvivesListenerClose": true,
+  "ptpTrafficErrorsBeforeClose": 0,
+  "pdpEchoSamples": 20,
+  "cdpInclusiveRttMs": {
+    "min": 9.845413000000008,
+    "mean": 14.080506999999965,
+    "max": 17.939494000000195
+  },
+  "snapshots": [
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:01",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.5",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:02"
+        }
+      ],
+      "pdpSent": 123,
+      "pdpReceived": 120,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 1.68,
+      "queueBytes": 139,
+      "errors": 1,
+      "lastError": "Relay disconnected",
+      "rtc": {
+        "state": "disabled",
+        "peers": [],
+        "sent": 0,
+        "received": 0,
+        "websocketSent": 123,
+        "fallbacks": 0,
+        "dropped": 0,
+        "lastError": "",
+        "queueBytes": 0
+      },
+      "ptp": [
+        {
+          "port": 15000,
+          "peer": "10.0.0.5",
+          "peerPort": 14000,
+          "state": "waiting"
+        }
+      ],
+      "queueDepth": 1
+    },
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:02",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.4",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:01"
+        }
+      ],
+      "pdpSent": 120,
+      "pdpReceived": 123,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 1.16,
+      "queueBytes": 7,
+      "errors": 1,
+      "lastError": "Relay connection or protocol rejected",
+      "rtc": {
+        "state": "disabled",
+        "peers": [],
+        "sent": 0,
+        "received": 0,
+        "websocketSent": 120,
+        "fallbacks": 0,
+        "dropped": 0,
+        "lastError": "",
+        "queueBytes": 0
+      },
+      "ptp": [],
+      "queueDepth": 1
+    }
+  ]
+}

@@ -5,6 +5,7 @@ No game data, native sockets, or administrative API are exposed.
 """
 import base64
 import hashlib
+import hmac
 import json
 import os
 import queue
@@ -31,6 +32,26 @@ JITTER = max(0, min(1000, float(os.getenv('RELAY_JITTER_MS', '0')))) / 1000
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 
+def ice_servers(user):
+    """Only send short-lived TURN credentials; the shared secret stays here."""
+    servers = []
+    stun = [s.strip() for s in os.getenv('RELAY_STUN_URLS', '').split(',') if s.strip()]
+    turn = [s.strip() for s in os.getenv('RELAY_TURN_URLS', '').split(',') if s.strip()]
+    secret = os.getenv('RELAY_TURN_SECRET', '')
+    if any(not s.startswith(('stun:', 'stuns:')) for s in stun):
+        raise ProtocolError('invalid STUN configuration')
+    if any(not s.startswith(('turn:', 'turns:')) for s in turn) or bool(turn) != bool(secret):
+        raise ProtocolError('TURN URLs and shared secret must be configured together')
+    if stun:
+        servers.append(dict(urls=stun))
+    if turn:
+        ttl = max(60, min(86400, int(os.getenv('RELAY_TURN_TTL', '3600'))))
+        username = f'{int(time.time()) + ttl}:{user.ip}'
+        credential = base64.b64encode(hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()).decode()
+        servers.append(dict(urls=turn, username=username, credential=credential))
+    return servers
+
+
 def log(event, **fields):
     print(json.dumps(dict(event=event, **fields)), flush=True)
 
@@ -46,6 +67,8 @@ class AdhocUser:
         self.group = None
         self.ip = 0
         self.rx = bytearray()
+        self.signal = None
+        self.session = secrets.token_hex(16)
 
     @property
     def ip_text(self):
@@ -120,6 +143,7 @@ class AdhocLobby:
                 peer.send(struct.pack('<B128s6sI', 2, user.name, user.mac, user.ip_u32))
                 user.send(struct.pack('<B128s6sI', 2, peer.name, peer.mac, peer.ip_u32))
             user.send(struct.pack('<B6s', 6, bssid))
+            self.sync_signals()
             log('join', game=user.game.decode('ascii'), group=group.rstrip(b'\0').decode('ascii'), peers=len(peers))
 
     def disconnect(self, user, notify=True):
@@ -130,6 +154,8 @@ class AdhocLobby:
                 if peer is not user and user.same_group(peer):
                     peer.send(struct.pack('<BI', 3, user.ip_u32))
             user.group = None
+            user.session = secrets.token_hex(16)
+            self.sync_signals()
             # No old stream may survive a group change.
             for endpoint in list(self.endpoints):
                 if endpoint.owner is user and endpoint.mode.startswith('tcp'):
@@ -145,6 +171,44 @@ class AdhocLobby:
                     seen.add(peer.group)
                     user.send(struct.pack('<B8s6s', 4, peer.group, peer.mac))
             user.send(b'\x05')
+
+    def sync_signals(self):
+        # Called under the lobby lock, including group changes and revocation.
+        for user in self.users.values():
+            if user.signal:
+                peers = [dict(ip=p.ip_text, session=p.session) for p in self.users.values()
+                         if p is not user and p.signal and user.same_group(p)]
+                user.signal.send_json(dict(type='peers', session=user.session, peers=peers))
+
+    def signal(self, source, data):
+        if len(data) > 49152:
+            raise ProtocolError('signaling size limit')
+        try:
+            message = json.loads(data)
+        except (ValueError, UnicodeError, RecursionError) as exc:
+            raise ProtocolError('invalid signaling JSON') from exc
+        if not isinstance(message, dict) or message.get('type') != 'signal':
+            raise ProtocolError('invalid signaling message')
+        with self.lock:
+            owner = source.owner
+            if owner.signal is not source:
+                raise ProtocolError('obsolete signaling connection')
+            target = next((u for u in self.users.values() if u.ip_text == message.get('to')), None)
+            # Delayed ICE from a previous group must never authorize a new link.
+            if (not target or not target.signal or not owner.same_group(target) or
+                    message.get('session') != owner.session or message.get('targetSession') != target.session):
+                return
+            payload = {k: message[k] for k in ('description', 'candidate') if k in message}
+            if len(payload) != 1:
+                raise ProtocolError('one signaling payload required')
+            if 'description' in payload:
+                d = payload['description']
+                if not isinstance(d, dict) or d.get('type') not in ('offer', 'answer') or not isinstance(d.get('sdp'), str):
+                    raise ProtocolError('invalid session description')
+            elif payload['candidate'] is not None and not isinstance(payload['candidate'], dict):
+                raise ProtocolError('invalid ICE candidate')
+            target.signal.send_json(dict(type='signal', sender=owner.ip_text, session=owner.session,
+                                         targetSession=target.session, **payload))
 
     def chat(self, user, message):
         with self.lock:
@@ -226,6 +290,10 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             self._handshake()
             self.writer = threading.Thread(target=self._write_loop, daemon=True)
             self.writer.start()
+            if self.mode == 'signal':
+                self.send_json(dict(type='hello', version=1, iceServers=ice_servers(self.owner)))
+                with self.lobby.lock:
+                    self.lobby.sync_signals()
             if self.mode == 'control':
                 while self.alive:
                     data = self._read_frame()
@@ -248,6 +316,9 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 if self.user:
                     self.lobby.remove(self.user)
                 self.lobby.endpoints.discard(self)
+                if self.mode == 'signal' and self.owner and self.owner.signal is self:
+                    self.owner.signal = None
+                    self.lobby.sync_signals()
                 for registry in (self.lobby.udp, self.lobby.listeners):
                     for key, handler in list(registry.items()):
                         if handler is self:
@@ -313,31 +384,43 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 self.user = AdhocUser(self, token, room)
                 self.user.key_id = self.key_id
                 self.lobby.add(self.user)
-            elif route in ('/udp', '/tcp-listen', '/tcp-connect'):
+            elif route in ('/udp', '/tcp-listen', '/tcp-connect', '/signal'):
                 self.mode = route[1:]
                 self.owner = self.lobby.owner(token, params.get('mac', [''])[0])
                 if self.owner.key_id != self.key_id:
                     raise ProtocolError('data credential must match control credential')
-                self.port = int(params.get('port', ['0'])[0])
-                if not 0 < self.port < 65536:
-                    raise ProtocolError('invalid port')
-                self.lobby.endpoints.add(self)
-                if self.mode in ('udp', 'tcp-listen'):
-                    registry = self.lobby.udp if self.mode == 'udp' else self.lobby.listeners
-                    endpoint = (token, self.port)
-                    if endpoint in registry:
-                        raise ProtocolError('port already bound')
-                    self.backlog = min(64, max(1, int(params.get('backlog', ['16'])[0])))
-                    registry[endpoint] = self
+                if self.mode == 'signal':
+                    if self.owner.signal:
+                        raise ProtocolError('signaling already connected')
+                    self.lobby.endpoints.add(self)
+                    self.owner.session = secrets.token_hex(16)
+                    self.owner.signal = self
+                    self.signal_budget = 256.0
+                    self.signal_updated = time.monotonic()
                 else:
-                    self.dst = params.get('dst', [''])[0]
-                    self.dstport = int(params.get('dstport', ['0'])[0])
-                    self.lobby.connect_tcp(self)
+                    self._bind_data(params, token)
             else:
                 raise ProtocolError('unknown relay endpoint')
         accept = base64.b64encode(hashlib.sha1((key + GUID).encode('ascii')).digest()).decode('ascii')
         self.request.sendall(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
                               f'Sec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: binary\r\n\r\n').encode('ascii'))
+
+    def _bind_data(self, params, token):
+        self.port = int(params.get('port', ['0'])[0])
+        if not 0 < self.port < 65536:
+            raise ProtocolError('invalid port')
+        self.lobby.endpoints.add(self)
+        if self.mode in ('udp', 'tcp-listen'):
+            registry = self.lobby.udp if self.mode == 'udp' else self.lobby.listeners
+            endpoint = (token, self.port)
+            if endpoint in registry:
+                raise ProtocolError('port already bound')
+            self.backlog = min(64, max(1, int(params.get('backlog', ['16'])[0])))
+            registry[endpoint] = self
+        else:
+            self.dst = params.get('dst', [''])[0]
+            self.dstport = int(params.get('dstport', ['0'])[0])
+            self.lobby.connect_tcp(self)
 
     def _read_exact(self, length):
         # The HTTP upgrade reuses its reader. A read may be short, or return
@@ -428,6 +511,9 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             except queue.Full:
                 self.stop()
 
+    def send_json(self, message):
+        self.send(json.dumps(message, separators=(',', ':')).encode())
+
     def _write_loop(self):
         # A receiving-only PDP socket can have continuous outbound traffic and
         # no client data. Ping by elapsed time, not by queue inactivity, so its
@@ -472,7 +558,14 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                 return
             if not data:  # WebSocket heartbeat
                 continue
-            if self.mode == 'udp':
+            if self.mode == 'signal':
+                now = time.monotonic()
+                self.signal_budget = min(256, self.signal_budget + (now - self.signal_updated) * 64) - 1
+                self.signal_updated = now
+                if self.signal_budget < 0:
+                    raise ProtocolError('signaling rate limit')
+                self.lobby.signal(self, data)
+            elif self.mode == 'udp':
                 if len(data) < 7 or data[:3] != b'PU1':
                     raise ProtocolError('invalid datagram version')
                 n = data[3]

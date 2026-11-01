@@ -209,6 +209,12 @@
             <div id="networkActivity" class="network-activity" role="status">Save before starting PPSSPP, then host or join from the game's multiplayer menu.</div>
             <details class="network-advanced">
               <summary>Player identity &amp; connection controls</summary>
+              <label class="network-field">Connection mode
+                <select id="networkTransportInput">
+                  <option value="hybrid">Automatic · direct connection when available</option>
+                  <option value="websocket">Relay only</option>
+                </select>
+              </label>
               <label class="network-field">Nickname
                 <input id="networkNickInput" type="text" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Nickname">
               </label>

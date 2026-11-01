@@ -198,4 +198,8 @@ jobs:
           RELAY_DOMAIN: ${{ secrets.RELAY_DOMAIN }}
           ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           RELAY_AUTH_MODE: ${{ vars.RELAY_AUTH_MODE }}
+          RELAY_STUN_URLS: ${{ vars.RELAY_STUN_URLS }}
+          RELAY_TURN_URLS: ${{ vars.RELAY_TURN_URLS }}
+          RELAY_TURN_SECRET: ${{ secrets.RELAY_TURN_SECRET }}
+          RELAY_TURN_TTL: ${{ vars.RELAY_TURN_TTL }}
         run: bash deploy/relay/deploy.sh

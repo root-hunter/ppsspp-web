@@ -1,0 +1,241 @@
+{
+  "passed": true,
+  "type": "protocol integration; not Tekken gameplay",
+  "realWasm": true,
+  "twoIsolatedContexts": true,
+  "origin": "https://127.0.0.1:18084",
+  "build": "/build-wasm-multiplayer/",
+  "headless": true,
+  "transportMode": "hybrid",
+  "rtcValidation": {
+    "connected": [
+      {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.3",
+            "state": "connected",
+            "channel": "open",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 123,
+        "received": 120,
+        "websocketSent": 0,
+        "fallbacks": 0,
+        "dropped": 0,
+        "lastError": "",
+        "queueBytes": 0
+      },
+      {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.2",
+            "state": "connected",
+            "channel": "open",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 120,
+        "received": 123,
+        "websocketSent": 0,
+        "fallbacks": 0,
+        "dropped": 0,
+        "lastError": "",
+        "queueBytes": 0
+      }
+    ],
+    "fallback": [
+      {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.3",
+            "state": "closed",
+            "channel": "closed",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 123,
+        "received": 120,
+        "websocketSent": 2,
+        "fallbacks": 1,
+        "dropped": 0,
+        "lastError": "WebRTC channel closed",
+        "queueBytes": 0
+      },
+      {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.2",
+            "state": "closed",
+            "channel": "closed",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 120,
+        "received": 123,
+        "websocketSent": 1,
+        "fallbacks": 1,
+        "dropped": 0,
+        "lastError": "WebRTC channel closed",
+        "queueBytes": 0
+      }
+    ],
+    "largeDatagramFallback": true,
+    "forcedConnectionFailureFallback": true,
+    "fallbackBrowserRttMs": {
+      "samples": 100,
+      "p50": 2.1100000143051147,
+      "p95": 3.9549999833106995,
+      "p99": 4.740000009536743,
+      "mean": 2.36080000013113
+    }
+  },
+  "browserRttMs": {
+    "samples": 100,
+    "p50": 1.3599999845027924,
+    "p95": 3.2249999940395355,
+    "p99": 3.7350000143051147,
+    "mean": 1.5863500010967255
+  },
+  "frontend": [
+    {
+      "enabled": true,
+      "hooked": true,
+      "build": "/build-wasm-multiplayer/",
+      "game": "./this.program",
+      "nativeConfig": {
+        "wlan": 1,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": false,
+      "settingsAppliedToCore": true
+    },
+    {
+      "enabled": false,
+      "hooked": false,
+      "build": "/build-wasm-multiplayer/",
+      "game": "/games/cube.cso",
+      "nativeConfig": {
+        "wlan": 0,
+        "mode": 2,
+        "nick": "BrowserUI"
+      },
+      "homebrewBooted": true,
+      "settingsAppliedToCore": true
+    }
+  ],
+  "ptpSurvivesListenerClose": true,
+  "ptpTrafficErrorsBeforeClose": 0,
+  "pdpEchoSamples": 20,
+  "cdpInclusiveRttMs": {
+    "min": 9.013396999999713,
+    "mean": 12.33200310000002,
+    "max": 17.339069999999992
+  },
+  "snapshots": [
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:01",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.3",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:02"
+        }
+      ],
+      "pdpSent": 225,
+      "pdpReceived": 221,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 2.76,
+      "queueBytes": 139,
+      "errors": 1,
+      "lastError": "Relay disconnected",
+      "rtc": {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.3",
+            "state": "closed",
+            "channel": "closed",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 123,
+        "received": 120,
+        "websocketSent": 102,
+        "fallbacks": 1,
+        "dropped": 0,
+        "lastError": "WebRTC channel closed",
+        "queueBytes": 0
+      },
+      "ptp": [
+        {
+          "port": 15000,
+          "peer": "10.0.0.3",
+          "peerPort": 14000,
+          "state": "waiting"
+        }
+      ],
+      "queueDepth": 1
+    },
+    {
+      "state": "registered",
+      "game": "ULUS10466",
+      "group": "TEKKEN",
+      "mac": "02:00:00:00:00:02",
+      "room": "probe",
+      "peers": [
+        {
+          "ip": "10.0.0.2",
+          "nick": "WASM probe",
+          "mac": "02:00:00:00:00:01"
+        }
+      ],
+      "pdpSent": 221,
+      "pdpReceived": 225,
+      "ptpSent": 8,
+      "ptpReceived": 8,
+      "ptpConnections": 1,
+      "rttMs": 0.97,
+      "queueBytes": 7,
+      "errors": 0,
+      "lastError": "",
+      "rtc": {
+        "state": "hybrid",
+        "peers": [
+          {
+            "ip": "10.0.0.2",
+            "state": "closed",
+            "channel": "closed",
+            "route": "direct",
+            "rttMs": 2
+          }
+        ],
+        "sent": 120,
+        "received": 123,
+        "websocketSent": 101,
+        "fallbacks": 1,
+        "dropped": 0,
+        "lastError": "WebRTC channel closed",
+        "queueBytes": 0
+      },
+      "ptp": [],
+      "queueDepth": 1
+    }
+  ]
+}

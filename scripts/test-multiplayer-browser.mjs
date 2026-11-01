@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const origin = process.env.PPSSPP_TEST_ORIGIN || 'https://127.0.0.1:8081';
 const build = process.env.PPSSPP_TEST_BUILD || '/build-wasm-multiplayer/';
+const transportMode = process.env.PPSSPP_TEST_TRANSPORT || 'websocket';
+assert.ok(['websocket', 'hybrid'].includes(transportMode));
 const profile = await mkdtemp(join(tmpdir(), 'ppsspp-adhoc-'));
 const headless = process.env.PPSSPP_TEST_HEADLESS !== '0';
 const chrome = spawn(process.env.CHROME || '/usr/bin/google-chrome', [
@@ -60,7 +62,7 @@ try {
     const { sessionId } = await command('Target.attachToTarget', { targetId, flatten: true });
     sessions.push(sessionId); await command('Runtime.enable', {}, sessionId);
     await command('Page.enable', {}, sessionId);
-    await command('Page.navigate', { url: `${origin}/adhoc-test.html?mac=${mac}&build=${encodeURIComponent(build)}` }, sessionId);
+    await command('Page.navigate', { url: `${origin}/adhoc-test.html?mac=${mac}&build=${encodeURIComponent(build)}&transport=${transportMode}` }, sessionId);
     await waitFor(() => evaluate(sessionId, `window.probeError ? (()=>{throw Error(window.probeError)})() : !!window.probeReady`), 'real WASM initialization', 120000);
     assert.equal(await evaluate(sessionId, 'crossOriginIsolated'), true);
     await evaluate(sessionId, `window.ctrl = probe(0,1,0,0,1); window.connectResult = probe(2,ctrl,0x7f000001,27312,0)`);
@@ -94,9 +96,55 @@ try {
   async function receive(s, fd, expected) {
     await waitFor(() => evaluate(s, `(probe(9,${fd},0,0,1)&1)!==0`), 'packet receive');
     const value = await evaluate(s, `(()=>{const n=probe(7,${fd},0,0,0);if(n<0)throw Error('recv '+n);return new TextDecoder().decode(new Uint8Array(readProbe(n)))})()`);
-    assert.equal(value, expected);
+    if (expected !== undefined) assert.equal(value, expected);
+    return value;
+  }
+  async function browserRtt() {
+    // The entire echo loop runs inside the browsers. CDP starts/collects it,
+    // but is not in the timed path. This is still a local transport benchmark.
+    await evaluate(b, `(() => {
+      const fs=Module.SOCKFS, original=fs.emit;
+      window.stopEcho=()=>{fs.emit=original};
+      fs.emit=function(event,fd) {
+        const result=original.apply(this,arguments);
+        if(event==='message' && fd===udp) {
+          const n=probe(7,udp,0,0,0);
+          if(n>=0) probe(6,udp,${ipA},13000,n);
+        }
+        return result;
+      };
+    })()`);
+    try {
+      return await evaluate(a, `new Promise((resolve,reject)=>{
+        const fs=Module.SOCKFS, original=fs.emit, values=[];
+        let sent=0, started=0;
+        const timeout=setTimeout(()=>{fs.emit=original;reject(Error('Browser RTT timeout'))},10000);
+        function next(){
+          writeProbe(new Uint8Array(64).fill(sent)); started=performance.now();
+          if(probe(6,udp,${ipB},13000,64)!==64) {clearTimeout(timeout);fs.emit=original;reject(Error('Benchmark send'));}
+        }
+        fs.emit=function(event,fd){
+          const result=original.apply(this,arguments);
+          if(event==='message' && fd===udp){
+            const n=probe(7,udp,0,0,0);
+            if(n!==64 || probeByte(0)!==sent){clearTimeout(timeout);fs.emit=original;reject(Error('Benchmark echo'));return result;}
+            values.push(performance.now()-started);
+            if(++sent===100){
+              clearTimeout(timeout);fs.emit=original;values.sort((a,b)=>a-b);
+              resolve({samples:values.length,p50:values[49],p95:values[94],p99:values[98],mean:values.reduce((a,b)=>a+b,0)/values.length});
+            } else queueMicrotask(next);
+          }
+          return result;
+        };
+        next();
+      })`);
+    } finally { await evaluate(b, 'stopEcho()'); }
   }
   const rtts = [];
+  if (transportMode === 'hybrid') for (const s of sessions) {
+    await waitFor(() => evaluate(s, "transport.snapshot().rtc.peers.some(p => p.state==='connected' && p.channel==='open')"), 'real WebRTC data channel', 15000);
+    await waitFor(() => evaluate(s, "transport.snapshot().rtc.peers.some(p => p.route==='direct' && p.rttMs !== null)"), 'ICE route and RTT diagnostics', 10000);
+  }
   for (let i = 0; i < 20; i++) {
     const text = 'PDP:' + i;
     const start = performance.now();
@@ -105,9 +153,27 @@ try {
     rtts.push(performance.now() - start);
   }
   await send(a, 'udp', 'broadcast', 0xffffffff, 13000, true); await receive(b, 'udp', 'broadcast');
-  // Queue two datagrams before receiving and verify boundaries and order.
+  // Preserve boundaries; only WSS promises ordering, RTC intentionally does not.
   await send(a, 'udp', 'first', ipB, 13000, true); await send(a, 'udp', 'second', ipB, 13000, true);
-  await receive(b, 'udp', 'first'); await receive(b, 'udp', 'second');
+  const datagrams = [await receive(b, 'udp'), await receive(b, 'udp')];
+  assert.deepEqual(transportMode === 'hybrid' ? datagrams.sort() : datagrams, ['first', 'second']);
+  const browserRttMs = await browserRtt();
+  let rtcValidation = null;
+  if (transportMode === 'hybrid') {
+    const connected = await Promise.all(sessions.map(s => evaluate(s, 'transport.snapshot().rtc')));
+    for (const rtc of connected) { assert.ok(rtc.sent >= 20); assert.ok(rtc.received >= 20); }
+    // Larger-than-RTC packets keep PSP boundaries through the WSS fallback.
+    const large = 'L'.repeat(20000);
+    await send(a, 'udp', large, ipB, 13000, true); await receive(b, 'udp', large);
+    await evaluate(a, 'probePeerConnections.forEach(pc=>pc.close())');
+    for (const s of sessions) await waitFor(() => evaluate(s, "transport.snapshot().rtc.peers.every(p => p.channel!=='open')"), 'WebRTC failure observed');
+    await send(a, 'udp', 'fallback-a', ipB, 13000, true); await receive(b, 'udp', 'fallback-a');
+    await send(b, 'udp', 'fallback-b', ipA, 13000, true); await receive(a, 'udp', 'fallback-b');
+    const fallback = await Promise.all(sessions.map(s => evaluate(s, 'transport.snapshot().rtc')));
+    for (let i = 0; i < 2; i++) assert.ok(fallback[i].websocketSent > connected[i].websocketSent);
+    const fallbackBrowserRttMs = await browserRtt();
+    rtcValidation = { connected, fallback, largeDatagramFallback: true, forcedConnectionFailureFallback: true, fallbackBrowserRttMs };
+  }
   await evaluate(b, 'window.listener=probe(0,1,0,0,0);probe(1,listener,0,14000,0);probe(3,listener,0,0,16)');
   await waitFor(() => evaluate(b, "Module.SOCKFS.getSocket(listener).__relay?.ws?.readyState===WebSocket.OPEN"), 'PTP listener ready');
   await evaluate(a, `window.ptp=probe(0,1,0,0,0);probe(1,ptp,0,15000,0);probe(2,ptp,${ipB},14000,0)`);
@@ -167,7 +233,7 @@ try {
   }
   assert.equal(events.length, 0, JSON.stringify(events));
   const report = { passed: true, type: 'protocol integration; not Tekken gameplay', realWasm: true, twoIsolatedContexts: true,
-    origin, build, headless, frontend, ptpSurvivesListenerClose: true, ptpTrafficErrorsBeforeClose: 0, pdpEchoSamples: rtts.length, cdpInclusiveRttMs: { min: Math.min(...rtts), mean: rtts.reduce((a,b)=>a+b,0)/rtts.length, max: Math.max(...rtts) }, snapshots };
+    origin, build, headless, transportMode, rtcValidation, browserRttMs, frontend, ptpSurvivesListenerClose: true, ptpTrafficErrorsBeforeClose: 0, pdpEchoSamples: rtts.length, cdpInclusiveRttMs: { min: Math.min(...rtts), mean: rtts.reduce((a,b)=>a+b,0)/rtts.length, max: Math.max(...rtts) }, snapshots };
   await writeFile(process.env.PPSSPP_TEST_REPORT || '/tmp/ppsspp-multiplayer-browser.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
 } finally {

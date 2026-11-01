@@ -443,7 +443,7 @@ byId("networkReconnectBtn")?.addEventListener("click", () => {
 });
 networkEnableToggle?.addEventListener("change", () => { try { saveNetworkConfigFromUI(); checkNetworkWhenVisible(); } catch (e) { networkActivityEl.textContent = e.message; } });
 networkTestBtn?.addEventListener("click", testNetworkRelay);
-for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyInput", "networkNickInput", "networkMacInput"]) {
+for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyInput", "networkNickInput", "networkMacInput", "networkTransportInput"]) {
   byId(id)?.addEventListener("input", () => {
     networkDraftDirty = true;
     networkProbe = { state: "unverified" };
@@ -2077,6 +2077,7 @@ function loadNetworkConfig() {
   let server = preferences.getItem(NETWORK_SERVER_KEY);
   if (!server || !server.includes("://")) server = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
   return { enabled: preferences.getItem(NETWORK_ENABLE_KEY) === "1", server,
+    transport: preferences.getItem("ppsspp-network-transport") === "websocket" ? "websocket" : "hybrid",
     room: preferences.getItem("ppsspp-network-room") || "public",
     sessionKey: readNetworkSessionKey(),
     nick: sanitizeNetworkNick(preferences.getItem(NETWORK_NICK_KEY)), mac: sanitizeNetworkMac(mac) };
@@ -2134,7 +2135,7 @@ function testWebSocket(url, timeoutMs = 5000) {
 }
 
 function networkConfigSignature(cfg) {
-  return JSON.stringify([cfg.enabled, cfg.server, cfg.room, cfg.sessionKey, cfg.nick, cfg.mac]);
+  return JSON.stringify([cfg.enabled, cfg.server, cfg.room, cfg.sessionKey, cfg.nick, cfg.mac, cfg.transport || "hybrid"]);
 }
 
 function networkStatusView(cfg, live, probe, now = Date.now(), online = true) {
@@ -2166,6 +2167,11 @@ function renderNetworkStatus(cfg = loadNetworkConfig()) {
   if (session) session.textContent = live?.state === "registered"
     ? `Room: ${networkActiveConfig?.room || cfg.room} · ${live.peers?.length || 0} peers` + (live.rttMs == null ? "" : ` · ${live.rttMs} ms`)
     : "No active game session";
+  if (session && live?.state === "registered") {
+    const connected = live.rtc?.peers?.filter(p => p.state === "connected" && p.channel === "open") || [];
+    const turn = connected.filter(p => p.route === "turn").length;
+    session.textContent += connected.length ? ` · WebRTC: ${connected.length} peers${turn ? ` (${turn} via TURN)` : ""}` : " · Data via relay";
+  }
   if (networkActiveConfig && networkConfigSignature(cfg) !== networkConfigSignature(networkActiveConfig)) {
     if (session) session.textContent += " · Saved settings changed: restart PPSSPP to apply";
   }
@@ -2205,6 +2211,7 @@ async function testNetworkRelay(save = true) {
 
 function saveNetworkConfigFromUI() {
   const cfg = { enabled: !!networkEnableToggle?.checked,
+    transport: byId("networkTransportInput")?.value === "websocket" ? "websocket" : "hybrid",
     server: window.PPSSPPAdhoc.endpoint(networkServerInput?.value).href.replace(/\/$/, ""),
     room: byId("networkRoomInput")?.value.trim() || "public",
     sessionKey: byId("networkSessionKeyInput")?.value || "",
@@ -2218,6 +2225,7 @@ function saveNetworkConfigFromUI() {
   preferences.setItem(NETWORK_NICK_KEY, cfg.nick);
   preferences.setItem(NETWORK_MAC_KEY, cfg.mac);
   preferences.setItem("ppsspp-network-room", cfg.room);
+  preferences.setItem("ppsspp-network-transport", cfg.transport);
   try { sessionStorage.setItem("ppsspp-tab-mac", cfg.mac); } catch (_) {}
   updateNetworkConfigUI(cfg, "Saved. Restart PPSSPP to apply network settings before entering multiplayer.");
   return cfg;
@@ -2229,6 +2237,7 @@ function updateNetworkConfigUI(cfg = loadNetworkConfig(), message = "") {
   if (networkServerInput) networkServerInput.value = cfg.server;
   if (networkNickInput) networkNickInput.value = cfg.nick;
   if (networkMacInput) networkMacInput.value = cfg.mac;
+  if (byId("networkTransportInput")) byId("networkTransportInput").value = cfg.transport || "hybrid";
   if (byId("networkRoomInput")) byId("networkRoomInput").value = cfg.room;
   if (byId("networkSessionKeyInput")) byId("networkSessionKeyInput").value = cfg.sessionKey || "";
   renderNetworkStatus(cfg);

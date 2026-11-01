@@ -2,6 +2,10 @@
 Run: python3 -m unittest discover -s server/tests -v
 """
 import base64
+import json
+import hashlib
+import hmac
+import select
 import os
 import socket
 import ssl
@@ -152,7 +156,7 @@ class RelayTest(unittest.TestCase):
             store.initialize()
             _, key = store.issue('Alice')
             self.server.relay_auth = RelayAuth('keys', store)
-            for route in ('', '/udp', '/tcp-listen', '/tcp-connect'):
+            for route in ('', '/udp', '/tcp-listen', '/tcp-connect', '/signal'):
                 for supplied in (None, 'wrong-key', key + 'x'):
                     with self.subTest(route=route, key=supplied), self.assertRaisesRegex(ConnectionError, '401 Unauthorized'):
                         self.client(path=route, session_key=supplied)
@@ -169,6 +173,8 @@ class RelayTest(unittest.TestCase):
             with self.assertRaises(ConnectionError):
                 self.client(path='/udp', token=owner.token, mac=owner.mac,
                             room='public&port=3001', session_key=other_key)
+            with self.assertRaises(ConnectionError):
+                self.client(path='/signal', token=owner.token, mac=owner.mac, session_key=other_key)
             # Close before deleting the store, so writer threads finish normally.
             for client in self.clients:
                 client.close()
@@ -185,10 +191,14 @@ class RelayTest(unittest.TestCase):
             alice.login(bytes.fromhex('020000000001'))
             data = self.client(path='/udp', token=alice.token, mac=alice.mac,
                                room='public&port=3000', session_key=alice_key)
+            signaling = self.client(path='/signal', token=alice.token, mac=alice.mac, session_key=alice_key)
+            self.assertEqual(json.loads(signaling.recv())['type'], 'hello')
+            self.assertEqual(json.loads(signaling.recv())['type'], 'peers')
             bob = self.client(session_key=bob_key)
             bob.login(bytes.fromhex('020000000002'))
             store.revoke(alice_id)
             self.assertIsNone(data.recv())
+            self.assertIsNone(signaling.recv())
             self.assertIsNone(alice.recv())
             ping = b'PR1' + struct.pack('>d', 1)
             bob.send(ping)
@@ -213,6 +223,82 @@ class RelayTest(unittest.TestCase):
         self.assertEqual(a.recv(), ping)
         a.send(b'x', 9)
         self.assertEqual(a.recv(), b'x')
+
+    def signal_pair(self):
+        a, b = self.pair()
+        sa = self.client('/signal', token=a.token, mac=a.mac)
+        self.assertEqual(json.loads(sa.recv())['type'], 'hello')
+        self.assertEqual(json.loads(sa.recv())['peers'], [])
+        sb = self.client('/signal', token=b.token, mac=b.mac)
+        self.assertEqual(json.loads(sb.recv())['type'], 'hello')
+        ma, mb = json.loads(sa.recv()), json.loads(sb.recv())
+        self.assertEqual(ma['peers'][0]['ip'], b.ip)
+        return a, b, sa, sb, ma['session'], mb['session']
+
+    def test_signaling_routes_only_authorized_current_memberships(self):
+        a, b, sa, sb, epoch_a, epoch_b = self.signal_pair()
+        message = dict(type='signal', to=b.ip, session=epoch_a, targetSession=epoch_b,
+                       sender='forged', description=dict(type='offer', sdp='test'))
+        sa.send(json.dumps(message).encode())
+        received = json.loads(sb.recv())
+        self.assertEqual(received['sender'], a.ip)
+        self.assertEqual(received['description']['sdp'], 'test')
+        message['session'] = '0' * 32
+        sa.send(json.dumps(message).encode())
+        sa.send(json.dumps(dict(type='signal', to=b.ip, session=epoch_a, targetSession=epoch_b, candidate=None)).encode())
+        self.assertIsNone(json.loads(sb.recv())['candidate'])
+        b.join(b'OTHER'); self.assertEqual(b.recv()[0], 6); self.assertEqual(a.recv()[0], 3)
+        self.assertEqual(json.loads(sa.recv())['peers'], [])
+        left = json.loads(sb.recv())
+        self.assertEqual(left['peers'], [])
+        self.assertNotEqual(left['session'], epoch_b)
+        self.assertEqual(json.loads(sa.recv())['peers'], [])
+        self.assertEqual(json.loads(sb.recv())['peers'], [])
+        sa.send(json.dumps(message).encode())
+        self.assertFalse(select.select([sb.socket], [], [], .08)[0])
+
+    def test_signaling_isolation_between_rooms_and_games(self):
+        for game, room in ((b'OTHER0001', 'public'), (b'ULUS10466', 'private')):
+            a, b = self.pair(game, room)
+            sa = self.client('/signal', token=a.token, mac=a.mac)
+            json.loads(sa.recv()); ma = json.loads(sa.recv())
+            sb = self.client('/signal', token=b.token, mac=b.mac, room=room)
+            json.loads(sb.recv()); mb = json.loads(sb.recv())
+            self.assertEqual(json.loads(sa.recv())['peers'], [])
+            self.assertEqual(mb['peers'], [])
+            sa.send(json.dumps(dict(type='signal', to=b.ip, session=ma['session'], targetSession=mb['session'], candidate=None)).encode())
+            self.assertFalse(select.select([sb.socket], [], [], .08)[0])
+            for c in self.clients:
+                c.close()
+            self.clients.clear()
+            time.sleep(.03)
+
+    def test_signaling_requires_owner_and_rejects_malformed_payloads(self):
+        with self.assertRaises(ConnectionError):
+            self.client('/signal', mac=bytes.fromhex('020000000001'))
+        a, b, sa, sb, epoch_a, epoch_b = self.signal_pair()
+        with self.assertRaises(ConnectionError):
+            self.client('/signal', token=a.token, mac=a.mac)
+        sa.send(b'[]'); self.assertIsNone(sa.recv())
+        ping = b'PR1' + struct.pack('>d', 123)
+        a.send(ping); self.assertEqual(a.recv(), ping)
+        self.assertEqual(json.loads(sb.recv())['peers'], [])
+
+    def test_turn_credentials_are_temporary_and_do_not_expose_shared_secret(self):
+        from unittest.mock import patch
+        secret = 'server-only-secret'
+        with patch.dict(os.environ, {'RELAY_STUN_URLS': 'stun:stun.example.org:3478',
+                                    'RELAY_TURN_URLS': 'turn:turn.example.org:3478?transport=udp',
+                                    'RELAY_TURN_SECRET': secret, 'RELAY_TURN_TTL': '600'}):
+            a = self.client(); a.login(bytes.fromhex('020000000001'))
+            sa = self.client('/signal', token=a.token, mac=a.mac)
+            hello = json.loads(sa.recv())
+            ice = hello['iceServers']; self.assertEqual(len(ice), 2)
+            turn = ice[1]; expiry = int(turn['username'].split(':')[0])
+            self.assertTrue(time.time() + 590 < expiry < time.time() + 610)
+            expected = base64.b64encode(hmac.new(secret.encode(), turn['username'].encode(), hashlib.sha1).digest()).decode()
+            self.assertEqual(turn['credential'], expected)
+            self.assertNotIn(secret, json.dumps(hello))
 
     def test_pdp_unicast_broadcast_order_and_boundaries(self):
         a, b = self.pair()

@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 const source = readFileSync(new URL('../public/adhoc-transport.js', import.meta.url), 'utf8');
-function setup(sessionKey = "") {
+function setup(sessionKey = "", globals = {}, config = {}) {
   const sockets = [];
   class WS {
     static OPEN = 1; static CONNECTING = 0; static CLOSED = 3; static CLOSING = 2;
@@ -27,9 +27,9 @@ function setup(sessionKey = "") {
   const close = stream => { closedStreams.push(stream.fd); ops.close(stream.node.sock); };
   class ErrnoError extends Error { constructor(errno) { super(String(errno)); this.errno = errno; } }
   const ctx = vm.createContext({ TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, DataView, URL, URLSearchParams, crypto: webcrypto,
-    performance, WebSocket: WS, location: { href: 'https://example.test/', protocol: 'https:' }, setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {} });
+    performance, WebSocket: WS, location: { href: 'https://example.test/', protocol: 'https:' }, setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {}, ...globals });
   vm.runInContext(source, ctx);
-  const api = ctx.PPSSPPAdhoc.install({ SOCKFS, FS: { ErrnoError, close }, config: { enabled: true, endpoint: 'wss://relay.test/adhoc', mac: '02:00:00:00:00:01', room: 'test', sessionKey } });
+  const api = ctx.PPSSPPAdhoc.install({ SOCKFS, FS: { ErrnoError, close }, config: { enabled: true, endpoint: 'wss://relay.test/adhoc', mac: '02:00:00:00:00:01', room: 'test', sessionKey, ...config } });
   const sock = type => SOCKFS.createSocket(2, type, 0);
   function control() {
     const c = sock(1); c.__ppssppControl = true;
@@ -230,4 +230,156 @@ for (const action of ['remote-close', 'listener-loss']) test(`${action} releases
   if (action === 'remote-close') remoteClose(1); else ws.close();
   assert.deepEqual(closedStreams, [pending.stream.fd]);
   assert.equal(api.snapshot().ptp.some(s => s.peer === '10.0.0.3'), false);
+});
+
+function rtcSetup() {
+  const connections = [];
+  class PC {
+    constructor(config) { this.config = config; this.connectionState = 'new'; this.sctp = { maxMessageSize: 65536 }; connections.push(this); }
+    createDataChannel(label, options) {
+      this.channel = { label, ...options, readyState: 'connecting', bufferedAmount: 0, sent: [],
+        send(data) { this.sent.push(new Uint8Array(data)); } };
+      return this.channel;
+    }
+    async createOffer() { return { type: 'offer', sdp: 'offer' }; }
+    async createAnswer() { return { type: 'answer', sdp: 'answer' }; }
+    async setLocalDescription(d) { this.localDescription = { ...d, toJSON: () => d }; }
+    async setRemoteDescription(d) { this.remoteDescription = d; }
+    async addIceCandidate(c) { (this.ice ||= []).push(c); }
+    close() { this.connectionState = 'closed'; this.channel.readyState = 'closed'; this.onconnectionstatechange?.(); this.channel.onclose?.(); }
+  }
+  const timers = [];
+  const env = setup('rtc-key', { RTCPeerConnection: PC, setTimeout: fn => { timers.push(fn); return timers.length; } });
+  const ctrl = env.control();
+  const signal = env.sockets[1]; signal.open();
+  const json = m => signal.receive(new TextEncoder().encode(JSON.stringify(m)));
+  const peer = (ip = '10.0.0.3') => {
+    const packet = new Uint8Array(139); packet[0] = 2; packet.set([2, 0, 0, 0, 0, 3], 129); packet.set(ip.split('.').map(Number), 135);
+    env.sockets[0].receive(packet);
+  };
+  peer();
+  const session = 'a'.repeat(32), remote = 'b'.repeat(32);
+  json({ type: 'hello', version: 1, iceServers: [] });
+  json({ type: 'peers', session, peers: [{ ip: '10.0.0.3', session: remote }] });
+  const negotiationTimeout = timers.at(-1);
+  const udp = env.sock(2); env.ops.bind(udp, '0.0.0.0', 3000);
+  const ws = env.sockets[2]; ws.open();
+  const pc = connections[0];
+  const open = () => { pc.connectionState = 'connected'; pc.channel.readyState = 'open'; pc.channel.onopen(); };
+  const send = (data = new Uint8Array([1, 0, 255]), addr = '10.0.0.3') => env.ops.sendmsg(udp, data, 0, data.length, addr, 4000);
+  return { ...env, ctrl, signal, json, connections, pc, udp, ws, open, send, peer, session, remote, negotiationTimeout };
+}
+
+test('hybrid uses authenticated signaling and a negotiated unreliable unordered PDP channel', async () => {
+  const { signal, pc, json, session, remote } = rtcSetup();
+  assert.equal(new URL(signal.url).searchParams.get('session_key'), 'rtc-key');
+  assert.equal(pc.channel.ordered, false); assert.equal(pc.channel.maxRetransmits, 0);
+  assert.equal(pc.channel.negotiated, true); assert.equal(pc.channel.id, 0);
+  await new Promise(setImmediate);
+  const offer = JSON.parse(new TextDecoder().decode(signal.sent[0]));
+  assert.equal(offer.description.type, 'offer'); assert.equal(offer.session, session); assert.equal(offer.targetSession, remote);
+  json({ type: 'signal', sender: '10.0.0.3', session: remote, targetSession: session, candidate: { candidate: 'early' } });
+  json({ type: 'signal', sender: '10.0.0.3', session: remote, targetSession: session, description: { type: 'answer', sdp: 'remote' } });
+  await new Promise(setImmediate);
+  assert.equal(pc.remoteDescription.type, 'answer'); assert.equal(pc.ice[0].candidate, 'early');
+});
+
+test('PDP uses WSS during negotiation, direct after open, and WSS after failure without dual send', () => {
+  const { send, open, pc, ws, api } = rtcSetup();
+  send(); assert.equal(ws.sent.length, 1); assert.equal(pc.channel.sent.length, 0);
+  open(); send(); assert.equal(ws.sent.length, 1); assert.equal(pc.channel.sent.length, 1);
+  const packet = pc.channel.sent[0];
+  assert.equal(new TextDecoder().decode(packet.subarray(0, 3)), 'PD1');
+  assert.equal(new DataView(packet.buffer).getUint16(3), 3000);
+  assert.equal(new DataView(packet.buffer).getUint16(5), 4000);
+  assert.deepEqual([...packet.subarray(8)], [1, 0, 255]);
+  pc.connectionState = 'failed'; pc.onconnectionstatechange(); send();
+  assert.equal(ws.sent.length, 2); assert.equal(api.snapshot().rtc.fallbacks, 1);
+  assert.equal(api.snapshot().errors, 0);
+});
+
+test('disconnected ICE, channel congestion, SCTP message limits and large packets use WSS', () => {
+  const { send, open, pc, ws } = rtcSetup(); open();
+  pc.connectionState = 'disconnected'; send();
+  pc.connectionState = 'connected'; pc.channel.bufferedAmount = 65536; send();
+  pc.channel.bufferedAmount = 0; pc.sctp.maxMessageSize = 9; send();
+  pc.sctp.maxMessageSize = 65536; send(new Uint8Array(65535));
+  assert.equal(ws.sent.length, 4); assert.equal(pc.channel.sent.length, 0);
+});
+
+test('mixed broadcast uses one direct send and one unicast relay send, avoiding relay broadcast duplicates', () => {
+  const { open, peer, send, pc, ws } = rtcSetup(); open(); peer('10.0.0.4');
+  send(new Uint8Array([5]), '255.255.255.255');
+  assert.equal(pc.channel.sent.length, 1); assert.equal(ws.sent.length, 1);
+  const packet = ws.sent[0];
+  assert.equal(new TextDecoder().decode(packet.subarray(4, 4 + packet[3])), '10.0.0.4');
+});
+
+test('broadcast preflights relay capacity before sending to any peer', () => {
+  const { open, peer, send, pc, ws } = rtcSetup(); open(); peer('10.0.0.4'); ws.bufferedAmount = 1024 * 1024;
+  assert.throws(() => send(new Uint8Array([5]), '255.255.255.255'), e => e.errno === 6);
+  assert.equal(pc.channel.sent.length, 0); assert.equal(ws.sent.length, 0);
+});
+
+test('direct receive binds source identity to the authenticated peer and preserves datagrams', () => {
+  const { open, pc, udp, api } = rtcSetup(); open();
+  const data = new Uint8Array([80, 68, 49, 0x0f, 0xa0, 0x0b, 0xb8, 0, 0, 255]);
+  pc.channel.onmessage({ data: data.buffer });
+  assert.equal(udp.recv_queue.length, 1); assert.equal(udp.recv_queue[0].addr, '10.0.0.3');
+  assert.equal(udp.recv_queue[0].port, 4000); assert.deepEqual([...udp.recv_queue[0].data], [0, 255]);
+  assert.equal(api.snapshot().rtc.received, 1);
+  data[5] = 0; data[6] = 1; pc.channel.onmessage({ data: data.buffer });
+  assert.equal(udp.recv_queue.length, 1); // no endpoint bound to destination port 1
+});
+
+test('signaling failure preserves the game and WSS endpoints, while obsolete SDP is ignored', async () => {
+  const { open, pc, signal, json, send, ws, api, session } = rtcSetup(); open();
+  json({ type: 'signal', sender: '10.0.0.3', session: 'obsolete', targetSession: session, description: { type: 'answer', sdp: 'bad' } });
+  await new Promise(setImmediate); assert.equal(pc.remoteDescription, undefined);
+  signal.close(); assert.equal(pc.connectionState, 'closed'); send();
+  assert.equal(ws.sent.length, 1); assert.equal(api.snapshot().state, 'registered'); assert.equal(api.snapshot().errors, 0);
+});
+
+test('peer departure and group changes immediately close the direct connection', () => {
+  for (const groupChange of [false, true]) {
+    const { open, pc, sockets, ops, ctrl } = rtcSetup(); open();
+    if (groupChange) ops.sendmsg(ctrl, new Uint8Array([3]), 0, 1);
+    else sockets[0].receive([3, 10, 0, 0, 3]);
+    assert.equal(pc.connectionState, 'closed');
+  }
+});
+
+test('relay-only mode skips signaling even with a WebRTC implementation', () => {
+  class PC { constructor() { throw Error('must not construct'); } }
+  const env = setup('', { RTCPeerConnection: PC }, { transport: 'websocket' }); env.control();
+  assert.equal(env.sockets.length, 1); assert.equal(env.api.snapshot().rtc.state, 'disabled');
+});
+
+test('failed RTC send falls back once and negotiation timeout leaves WSS usable', () => {
+  for (const timeout of [false, true]) {
+    const { negotiationTimeout, open, send, pc, ws, api } = rtcSetup();
+    if (timeout) negotiationTimeout();
+    else { open(); pc.channel.send = () => { throw Error('SCTP unavailable'); }; }
+    assert.equal(send(), 3);
+    assert.equal(ws.sent.length, 1); assert.equal(api.snapshot().rtc.fallbacks, 1);
+    assert.equal(api.snapshot().state, 'registered');
+  }
+});
+
+test('late failure during broadcast does not expose EAGAIN after partial delivery', () => {
+  const { open, peer, json, session, remote, connections, send, pc, ws, api } = rtcSetup(); open(); peer('10.0.0.4');
+  json({ type: 'peers', session, peers: [{ ip: '10.0.0.3', session: remote }, { ip: '10.0.0.4', session: 'c'.repeat(32) }] });
+  const second = connections[1]; second.connectionState = 'connected'; second.channel.readyState = 'open'; second.channel.onopen();
+  second.channel.send = () => { throw Error('late SCTP failure'); }; ws.bufferedAmount = 1024 * 1024;
+  assert.equal(send(new Uint8Array([5]), '255.255.255.255'), 1);
+  assert.equal(pc.channel.sent.length, 1); assert.equal(ws.sent.length, 0); assert.equal(api.snapshot().rtc.dropped, 1);
+});
+
+test('control teardown closes RTC and malformed direct packets only disable optional RTC', () => {
+  const env = rtcSetup(); env.open();
+  env.pc.channel.onmessage({ data: new Uint8Array([0,0,0,1,1,1,1,0]).buffer });
+  assert.equal(env.api.snapshot().rtc.fallbacks, 1); assert.equal(env.api.snapshot().errors, 0);
+  env.send(); assert.equal(env.ws.sent.length, 1);
+  const other = rtcSetup(); other.open(); other.sockets[0].close();
+  assert.equal(other.pc.connectionState, 'closed'); assert.equal(other.signal.readyState, 3);
 });

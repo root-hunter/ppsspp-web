@@ -15,6 +15,20 @@ set -euo pipefail
   exit 1
 }
 
+# Store ICE settings as literal single-quoted dotenv values. Reject delimiters
+# before writing so optional CI configuration cannot inject another setting.
+for ice_setting in RELAY_STUN_URLS RELAY_TURN_URLS RELAY_TURN_SECRET; do
+  ice_value="${!ice_setting:-}"
+  [[ "$ice_value" != *$'\n'* && "$ice_value" != *$'\r'* && "$ice_value" != *"'"* ]] || {
+    echo "$ice_setting must be single-line and contain no single quote." >&2
+    exit 1
+  }
+done
+[[ "${RELAY_TURN_TTL:-3600}" =~ ^[0-9]{1,6}$ ]] || {
+  echo 'RELAY_TURN_TTL must be an integer.' >&2
+  exit 1
+}
+
 docker info > /dev/null
 docker compose version
 
@@ -28,6 +42,10 @@ printf 'RELAY_IMAGE=%s\nRELAY_DOMAIN=%s\nACME_EMAIL=%s\n' \
   "$RELAY_IMAGE" "$RELAY_DOMAIN" "$ACME_EMAIL" > "$deploy_dir/.env"
 
 printf 'RELAY_AUTH_MODE=%s\n' "${RELAY_AUTH_MODE:-open}" >> "$deploy_dir/.env"
+for ice_setting in RELAY_STUN_URLS RELAY_TURN_URLS RELAY_TURN_SECRET; do
+  printf "%s='%s'\n" "$ice_setting" "${!ice_setting:-}" >> "$deploy_dir/.env"
+done
+printf 'RELAY_TURN_TTL=%s\n' "${RELAY_TURN_TTL:-3600}" >> "$deploy_dir/.env"
 
 cd "$deploy_dir"
 compose=(docker compose --project-name ppsspp-relay --env-file .env -f compose.yml)

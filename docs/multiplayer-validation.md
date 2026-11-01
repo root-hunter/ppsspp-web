@@ -76,3 +76,46 @@ A quest with two MHFU clients, Firefox and a remote relay remains to be checked.
 The separately reported slow-host timeout before any connection is accepted is
 outside this fix. Publish the rebuilt web shell to deliver the change; the
 emulator core and relay do not need rebuilding for this JavaScript correction.
+
+## Hybrid WebRTC PDP transport — 2026-11-01
+
+The default browser transport now attempts an unordered, non-retransmitting
+WebRTC DataChannel for PDP, retaining WSS data endpoints for fallback. PRO and
+PTP remain on WSS. See [hybrid transport](webrtc-hybrid.md) for behavior, limits,
+authorization and deployment configuration.
+
+Validation completed locally:
+
+- JavaScript: 32 runtime and 34 transport tests pass, including direct routing,
+  early ICE, stale SDP, negotiation timeout, optional signaling failure, mixed
+  broadcast, backpressure, late broadcast failure, invalid packets and teardown.
+- Python: 53 tests pass over raw WS and HTTPS/WSS, including signaling ownership,
+  matching credentials, revocation, room/game/group isolation, membership epochs,
+  malformed signaling and expiring TURN credential generation.
+- Angular `build:pages` passes with the existing `qrcode`/`jsqr` CommonJS warnings.
+  Both Compose configurations and deployment shell syntax validate.
+- Two isolated headless Chromium contexts using the existing instrumented WASM
+  core establish an actual direct ICE/DTLS/SCTP connection. At the connected
+  checkpoint all test PDP traffic uses WebRTC, with no PDP sends through WSS.
+  A 20,000-byte datagram uses WSS intact. Forcibly closing the peer connection
+  switches subsequent bidirectional PDP traffic to WSS while control remains
+  registered. PTP listener-close/accepted-stream traffic, frontend configuration
+  and the single-player homebrew probe also pass. The separate relay-only browser
+  run passes with WebRTC disabled.
+
+Artifacts: `artifacts/multiplayer/webrtc-hybrid-browser.json` and
+`artifacts/multiplayer/webrtc-websocket-browser.json`.
+
+The hybrid run measures 100 sequential 64-byte echoes through WASM entirely
+inside the browsers, without CDP calls in the timed path. On this local run:
+
+| Route | Median RTT | p95 RTT | p99 RTT |
+| --- | --- | --- | --- |
+| Direct WebRTC | 1.36 ms | 3.22 ms | 3.74 ms |
+| WSS after forced RTC failure | 2.11 ms | 3.95 ms | 4.74 ms |
+
+These sequential, local samples show a transport improvement in this setup;
+they do not establish WAN gains, game input latency or rendering performance.
+Do not compare them with earlier `cdpInclusiveRttMs` measurements. No actual PSP
+gameplay, physical-device WAN session, packet-loss/jitter benchmark, Firefox,
+mobile-browser session or real TURN allocation was validated in this change.

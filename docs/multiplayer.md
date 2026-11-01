@@ -1,6 +1,6 @@
 # Browser Ad Hoc multiplayer
 
-The browser path uses the existing PSP Ad Hoc HLE, with its socket operations routed through WSS to the Python relay. Matching remains PSP/HLE matching over PDP; this is not input synchronization. Gameplay compatibility must be established with a real game, separately from transport tests.
+The browser path uses the existing PSP Ad Hoc HLE. By default, PDP datagrams use peer-to-peer WebRTC when available, with WSS relay fallback; PRO control and reliable PTP streams use WSS. Matching remains PSP/HLE matching over PDP; this is not input synchronization. Gameplay compatibility must be established with a real game, separately from transport tests. See [hybrid WebRTC transport](webrtc-hybrid.md) for routing, ICE/TURN configuration, limits and validation.
 
 ## Audit and reuse
 

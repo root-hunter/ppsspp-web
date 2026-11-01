@@ -112,3 +112,18 @@ docker compose --project-name ppsspp-relay exec relay python3 relay_admin.py rev
 ```
 
 The plaintext key is shown only at issuance. Give each user their own key; they enter it in Network before testing or launching. Invitations omit the personal credential by default; selecting **Include my session key** shares access as that user. Revoking or expiring a key blocks further access and disconnects its active sockets without interrupting other users. Database errors deny access. Back up the protected `relay-auth` volume and restrict container/host access: the CLI is the administration boundary, with no public management endpoint.
+
+## Hybrid WebRTC
+
+The relay supports optional `/adhoc/signal` for direct PDP data with WSS fallback.
+Rebuild the relay image and web shell together. Configure `RELAY_STUN_URLS`,
+`RELAY_TURN_URLS`, `RELAY_TURN_SECRET` and `RELAY_TURN_TTL` in the Compose
+environment when using an existing STUN/TURN service. Empty settings retain LAN
+host candidates and automatic WSS fallback. TURN needs its own reachable ports;
+Caddy's HTTPS/HTTP3 listener does not supply TURN. See
+[hybrid transport configuration and validation](webrtc-hybrid.md).
+
+For Actions deployments, set `RELAY_STUN_URLS`, `RELAY_TURN_URLS` and optional
+`RELAY_TURN_TTL` as `oracle-relay` environment variables, and
+`RELAY_TURN_SECRET` as an environment secret. The deploy job writes these to the
+protected persistent `.env`; local edits are replaced on the next deployment.
