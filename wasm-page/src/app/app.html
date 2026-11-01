@@ -14,6 +14,7 @@
       <a class="top-official-link" href="https://www.ppsspp.org/" target="_blank" rel="noopener" title="Original PPSSPP website">
         <span>PPSSPP.org</span><i data-lucide="external-link"></i>
       </a>
+      <button id="fullscreenBtn" type="button" class="fullscreen-button" aria-label="Enter fullscreen" title="Fullscreen" aria-pressed="false"><i data-lucide="maximize"></i><span>Fullscreen</span></button>
       <button id="panelToggleBtn" class="panel-btn" title="Game menu" aria-label="Game menu" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="gamepad-2"></i><span class="btn-lbl">Game menu</span></button>
     </div>
   </header>
@@ -22,14 +23,16 @@
     <button id="fsMenuBackdrop" class="fullscreen-menu-backdrop" type="button" aria-label="Close game menu" tabindex="-1" hidden></button>
     <div class="fullscreen-toolbar">
       <button id="fsMenuToggle" type="button" aria-label="Game menu" aria-controls="fsMenuActions" aria-expanded="false" title="Game menu"><span aria-hidden="true">···</span></button>
+      <button id="fsExitBtn" type="button" aria-label="Exit fullscreen" title="Exit fullscreen"><i data-lucide="minimize"></i></button>
       <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="Game controls" hidden>
         <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="gamepad-2"></i> Dashboard</button>
-        <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
       </div>
     </div>
     <section class="stage">
       <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
-      <div id="loadOverlay">
+      <div id="loadOverlay" role="status">
+        <div id="launchArtwork" class="launch-artwork" hidden><img id="launchArtworkImage" alt=""></div>
+        <div id="launchTitle" class="launch-title">PPSSPP</div>
         <div class="spinner"></div>
         <div class="load-label" id="loadLabel">Initializing&hellip;</div>
         <div class="progress-wrap"><div id="progressBar"></div></div>
@@ -52,7 +55,13 @@
     </section>
 
     <section id="sidePanel" class="console-dashboard" aria-label="Console dashboard">
-      <div class="status-bar" role="status"><span class="status-dot" id="statusDot"></span><span id="statusText">Ready</span></div>
+      <div class="console-atmosphere" aria-hidden="true">
+        <div class="atmosphere-light"></div>
+        <svg class="psp-wave wave-back" viewBox="0 0 1600 900" preserveAspectRatio="none"><defs><linearGradient id="waveBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8bc6ec" stop-opacity=".26"/><stop offset="1" stop-color="#365b99" stop-opacity="0"/></linearGradient></defs><path d="M-200 490 C180 140 430 800 850 420 S1430 230 1800 520 L1800 1100 L-200 1100Z" fill="url(#waveBack)"/><path d="M-200 490 C180 140 430 800 850 420 S1430 230 1800 520" fill="none" stroke="#a4d7f2" stroke-opacity=".22" stroke-width="1.5"/></svg>
+        <svg class="psp-wave wave-front" viewBox="0 0 1600 900" preserveAspectRatio="none"><defs><linearGradient id="waveFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#badbea" stop-opacity=".2"/><stop offset=".7" stop-color="#395c98" stop-opacity="0"/></linearGradient></defs><path d="M-200 570 C180 850 440 190 900 480 S1400 800 1800 380 L1800 1100 L-200 1100Z" fill="url(#waveFront)"/><path d="M-200 570 C180 850 440 190 900 480 S1400 800 1800 380" fill="none" stroke="#d2ecff" stroke-opacity=".18" stroke-width="1"/></svg>
+        <svg class="psp-wave wave-thread" viewBox="0 0 1600 900" preserveAspectRatio="none"><path d="M-200 650 C200 340 520 750 1000 450 S1510 500 1800 600 M-200 675 C200 365 520 775 1000 475 S1510 525 1800 625" fill="none" stroke="#bad9f4" stroke-opacity=".12" stroke-width="1"/></svg>
+      </div>
+      <div class="status-bar"><span class="status-dot" id="statusDot"></span><span id="statusText" role="status">Ready</span><button id="dashboardFullscreenBtn" type="button" class="fullscreen-button" aria-label="Exit fullscreen"><i data-lucide="minimize"></i><span>Exit fullscreen</span></button></div>
 
       <nav class="tabs" aria-label="Dashboard sections">
         <button type="button" class="tab active" data-tab="library" aria-current="page"><i data-lucide="gamepad-2"></i> Library</button>
@@ -64,6 +73,12 @@
         <button type="button" class="tab"        data-tab="log"><i data-lucide="terminal"></i> Logs</button>
         <button type="button" class="tab"        data-tab="about"><i data-lucide="info"></i> About</button>
       </nav>
+
+      <section id="sessionDock" class="session-dock" aria-label="Current session" hidden>
+        <div class="session-preview"><canvas id="sessionPreview" width="320" height="180" aria-label="Session preview" hidden></canvas><img id="sessionArtwork" alt="" hidden><span id="sessionPreviewFallback"><i data-lucide="gamepad-2"></i></span></div>
+        <div class="session-copy"><span id="sessionState" class="session-state">In progress</span><h2 id="sessionTitle">PPSSPP</h2><p id="sessionDetail">Return to your session.</p></div>
+        <button id="resumeSessionBtn" type="button" class="primary"><i data-lucide="play"></i><span>Resume</span></button>
+      </section>
 
       <div class="tab-panel active" id="tabLibrary">
         <div id="libraryPanel" class="collection-panel">
@@ -250,7 +265,9 @@
               <label class="form-field" for="gamepadSelect">Active controller<select id="gamepadSelect"><option value="-1">All controllers</option></select></label>
               <label class="form-field" for="gpuSelect">Graphics processor<select id="gpuSelect"><option value="high-performance">Dedicated GPU</option><option value="low-power">Integrated GPU</option><option value="default">Automatic</option></select></label>
             </div>
-            <div class="action-row"><button id="fullscreenBtn" type="button"><i data-lucide="maximize"></i> Fullscreen</button><button id="configureControllerBtn" type="button">Configure controller</button><button id="resetControllerBtn" type="button">Reset mapping</button></div>
+            <div class="action-row"><button id="configureControllerBtn" type="button">Configure controller</button><button id="resetControllerBtn" type="button">Reset mapping</button></div>
+            <label class="menu-motion-setting"><input id="menuMotionToggle" type="checkbox" checked> Animated menu background</label>
+            <p class="field-help">PS / Guide: press for the emulator menu; hold for the web menu. L3 + R3 also opens the web menu.</p>
             <p id="controllerMappingStatus" class="field-help" role="status">Standard button layout.</p>
           </section>
           <div class="info-group">
@@ -362,7 +379,7 @@
           <button id="clearLogBtn" title="Clear"><i data-lucide="trash-2"></i></button>
         </div>
       </div>
-      <footer class="console-hints"><span><kbd>↔ ↕</kbd> Navigate</span><span><kbd>A / ×</kbd> Select</span><span><kbd>B / ○</kbd> Back</span><span><kbd>LB / RB</kbd> Sections</span><span class="hint-menu"><kbd>L3 + R3</kbd> Dashboard</span><span id="consoleInputStatus" role="status">Keyboard · Mouse · Touch</span></footer>
+      <footer class="console-hints"><span><kbd>↔ ↕</kbd> Navigate</span><span><kbd>A / ×</kbd> Select</span><span><kbd>B / ○</kbd> Back</span><span><kbd>LB / RB</kbd> Sections</span><span class="hint-menu"><kbd>PS</kbd> Menu · hold for web</span><span class="hint-fullscreen"><kbd>Y / △</kbd> Fullscreen</span><span id="consoleInputStatus" role="status">Keyboard · Mouse · Touch</span></footer>
     </section>
 
   <div id="toast" role="status"></div>

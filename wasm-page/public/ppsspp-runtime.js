@@ -178,7 +178,7 @@ function revealPanelInput() {
 function syncViewportSize(options = {}) {
   const reset = options?.reset === true;
   const vv = window.visualViewport;
-  const activeFullscreen = !!fullscreenElement();
+  const activeFullscreen = !!fullscreenElement() || document.body.classList.contains("immersive-fullscreen");
   const visualWidth = Math.round(vv?.width || window.innerWidth || document.documentElement.clientWidth || 0);
   const visualHeight = Math.round(vv?.height || window.innerHeight || document.documentElement.clientHeight || 0);
   const layoutWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || visualWidth);
@@ -220,7 +220,7 @@ function syncViewportSize(options = {}) {
 }
 
 function syncFullscreenOverlays() {
-  const activeFullscreen = !!fullscreenElement();
+  const activeFullscreen = !!fullscreenElement() || document.body.classList.contains("immersive-fullscreen");
   document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
   if (activeFullscreen && fpsBadge) fpsBadge.style.display = "none";
 }
@@ -381,10 +381,152 @@ const networkTestBtn      = byId("networkTestBtn");
 const networkSaveBtn      = byId("networkSaveBtn");
 const networkActivityEl   = byId("networkActivity");
 
+let menuSuspended = false, menuResumeTimer = null, menuKeepaliveRelease = null;
+let nativeMenuTimer = null;
+const gameplayKeys = new Map();
+
+function releaseGameplayKeyboard() {
+  window.__ppssppReleasingKeys = true;
+  try {
+    for (const key of gameplayKeys.values()) canvas?.dispatchEvent(new KeyboardEvent("keyup", { ...key, bubbles: true }));
+  } finally { gameplayKeys.clear(); window.__ppssppReleasingKeys = false; }
+}
+window.addEventListener("keydown", event => {
+  if (!document.body.classList.contains("panel-open") && document.activeElement === canvas && !["F1", "F11"].includes(event.key))
+    gameplayKeys.set(event.code || event.key, { key: event.key, code: event.code, keyCode: event.keyCode, which: event.which, location: event.location });
+}, true);
+window.addEventListener("keyup", event => gameplayKeys.delete(event.code || event.key), true);
+
+function setSessionPresentation(name) {
+  const tile = [...(byId("libraryGrid")?.querySelectorAll(".collection-tile") || [])].find(tile => tile.dataset.game === name);
+  const title = tile?.querySelector(".tile-title")?.textContent || (name ? prettyGameName(name) : "PPSSPP");
+  const source = tile?.querySelector(".tile-art > img")?.getAttribute("src") || "";
+  for (const id of ["sessionTitle", "launchTitle"]) { const el = byId(id); if (el) el.textContent = title; }
+  for (const id of ["sessionArtwork", "launchArtworkImage"]) {
+    const img = byId(id);
+    if (img) { if (source) img.src = source; else img.removeAttribute("src"); img.hidden = !source; }
+  }
+  if (byId("launchArtwork")) byId("launchArtwork").hidden = !source;
+  updateSessionDock();
+}
+function captureSessionPreview() {
+  const preview = byId("sessionPreview"), fallback = byId("sessionPreviewFallback"), artwork = byId("sessionArtwork");
+  if (!preview) return;
+  let captured = false;
+  try {
+    const ctx = preview.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(canvas, 0, 0, preview.width, preview.height);
+    const pixels = ctx.getImageData(0, 0, preview.width, preview.height).data;
+    let lit = 0;
+    for (let i = 0; i < pixels.length; i += 16) if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 36 && pixels[i + 3]) lit++;
+    captured = lit > preview.width * preview.height / 80;
+  } catch (_) { /* Some WebGL frames cannot be copied after presentation. Use the game icon. */ }
+  preview.hidden = !captured;
+  if (artwork) artwork.hidden = captured || !artwork.getAttribute("src");
+  if (fallback) fallback.hidden = captured || !!artwork?.getAttribute("src");
+}
+function sessionIsMultiplayer() { return !!(networkActiveConfig || loadNetworkConfig()).enabled; }
+function updateSessionDock() {
+  const dock = byId("sessionDock");
+  if (!dock) return;
+  dock.hidden = !document.body.classList.contains("emulator-started");
+  if (dock.hidden) return;
+  const live = runtimeReady && !runtimeFailed && sessionIsMultiplayer();
+  byId("sessionState").textContent = runtimeFailed ? "Session stopped" : !runtimeReady ? "Starting" : menuSuspended ? "Paused" : live ? "Multiplayer · live" : "Running";
+  byId("sessionDetail").textContent = runtimeFailed ? "Open System for recovery options." : !runtimeReady ? "Preparing the emulator…" : menuSuspended ? "Kept in this tab. Resume to continue." : live ? "The session stays connected while you browse." : "The emulator is running in this tab.";
+  byId("resumeSessionBtn").disabled = !runtimeReady || runtimeFailed;
+  byId("resumeSessionBtn").querySelector("span").textContent = menuSuspended ? "Resume" : "Return to session";
+  dock.dataset.state = runtimeFailed ? "stopped" : menuSuspended ? "paused" : live ? "live" : "running";
+}
+function suspendMenuAudio() {
+  const sdl = window.Module?.SDL2?.audioContext || window.SDL2?.audioContext;
+  const contexts = new Set([...trackedAudioContexts, ...(sdl ? [sdl] : [])]);
+  for (const ctx of contexts) {
+    if (ctx?.state !== "running" || typeof ctx.suspend !== "function") continue;
+    Promise.resolve(ctx.suspend()).then(() => { if (!menuSuspended && !runtimeFailed) void unlockAudio(); }).catch(() => {});
+  }
+}
+function syncMenuSuspension(open) {
+  clearTimeout(menuResumeTimer); menuResumeTimer = null;
+  if (!document.body.classList.contains("emulator-started")) return;
+  if (open) {
+    document.body.classList.remove("session-resuming");
+    if (runtimeReady && !runtimeFailed) {
+      if (!menuSuspended) captureSessionPreview();
+      const keepalivePush = window.Module?.runtimeKeepalivePush || window.runtimeKeepalivePush;
+      const keepalivePop = window.Module?.runtimeKeepalivePop || window.runtimeKeepalivePop;
+      const canPause = typeof keepalivePush === "function" && typeof keepalivePop === "function" && !sessionIsMultiplayer() && typeof window.Module?.pauseMainLoop === "function" && typeof window.Module?.resumeMainLoop === "function";
+      if (canPause && !menuSuspended) {
+        try {
+          // A paused loop releases its own keepalive on its next scheduled tick.
+          // Hold a separate reference until resume installs the new scheduler.
+          keepalivePush.call(window.Module);
+          menuKeepaliveRelease = () => keepalivePop.call(window.Module);
+          window.Module.pauseMainLoop(); menuSuspended = true;
+          document.body.classList.add("session-suspended");
+          suspendMenuAudio();
+        } catch (error) { menuKeepaliveRelease?.(); menuKeepaliveRelease = null; log("Session pause unavailable: " + error.message, "warn"); }
+      }
+    }
+    updateSessionDock();
+    return;
+  }
+  if (!menuSuspended || runtimeFailed) { updateSessionDock(); return; }
+  document.body.classList.add("session-resuming");
+  const resume = () => {
+    menuResumeTimer = null;
+    if (document.body.classList.contains("panel-open") || runtimeFailed) return;
+    try {
+      window.Module.resumeMainLoop(); menuSuspended = false;
+      menuKeepaliveRelease?.(); menuKeepaliveRelease = null;
+      document.body.classList.remove("session-suspended", "session-resuming");
+      void unlockAudio(); updateSessionDock();
+    } catch (error) { failRuntime("Could not resume the emulator: " + error.message); setPanelOpen(true); }
+  };
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || document.body.classList.contains("menu-motion-off")) resume();
+  else menuResumeTimer = setTimeout(resume, 240);
+}
+
+// Escape is PPSSPP's native pause-menu shortcut. Delay delivery until a
+// suspended loop resumes, and keep the web shell out of this key's path.
+function openNativeMenu() {
+  if (!runtimeReady || runtimeFailed) { showToast("Start the emulator to open its menu."); return; }
+  releaseGameplayKeyboard();
+  setFullscreenMenuOpen(false, false);
+  setPanelOpen(false);
+  clearTimeout(nativeMenuTimer);
+  const deadline = performance.now() + 1500;
+  const deliver = () => {
+    nativeMenuTimer = null;
+    if (runtimeFailed || document.body.classList.contains("panel-open")) return;
+    if (menuSuspended) {
+      if (performance.now() < deadline) nativeMenuTimer = setTimeout(deliver, 16);
+      return;
+    }
+    canvas.focus({ preventScroll: true });
+    const sendKey = type => {
+      window.__ppssppNativeMenuKey = true;
+      try { canvas.dispatchEvent(new KeyboardEvent(type, { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true, cancelable: true })); }
+      finally { window.__ppssppNativeMenuKey = false; }
+    };
+    sendKey("keydown");
+    // Release even if the web menu opens in the meantime.
+    setTimeout(() => {
+      window.__ppssppReleasingKeys = true;
+      try { sendKey("keyup"); } finally { window.__ppssppReleasingKeys = false; }
+    }, 32);
+  };
+  deliver();
+}
+
 // Full-screen console dashboard; retain legacy IDs for runtime integrations.
 function setPanelOpen(open, focus = true) {
   if (!open && !document.body.classList.contains("emulator-started")) open = true;
+  if (open) { clearTimeout(nativeMenuTimer); nativeMenuTimer = null; releaseGameplayKeyboard(); }
   document.body.classList.toggle("panel-open", open);
+  const dashboard = byId("sidePanel");
+  if (dashboard) { dashboard.inert = !open; dashboard.setAttribute("aria-hidden", String(!open)); }
+  syncMenuSuspension(open);
   if (open) setFullscreenMenuOpen(false, false);
   const stage = document.querySelector(".stage");
   if (stage) stage.inert = open;
@@ -392,7 +534,7 @@ function setPanelOpen(open, focus = true) {
   document.dispatchEvent(new CustomEvent("consolevisibilitychange", { detail: { open } }));
   for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
   if (focus) {
-    const target = open ? document.querySelector(".tab.active") : document.body.classList.contains("emulator-started") ? canvas : panelToggleBtn;
+    const target = open ? !byId("sessionDock")?.hidden && !byId("resumeSessionBtn")?.disabled ? byId("resumeSessionBtn") : document.querySelector(".tab.active") : document.body.classList.contains("emulator-started") ? canvas : panelToggleBtn;
     target?.focus({ preventScroll: true });
   }
   if (panelToggleBtn) {
@@ -405,6 +547,7 @@ function setPanelOpen(open, focus = true) {
 }
 // Each visit starts at the dashboard on every device.
 setPanelOpen(true, false);
+on("resumeSessionBtn", "click", () => setPanelOpen(false));
 on(panelToggleBtn, "click", () => {
   setPanelOpen(!document.body.classList.contains("panel-open"));
 });
@@ -3466,7 +3609,7 @@ function updateAudioDebugFromLog(text) {
 }
 
 async function reportAudioStatus() {
-  if (!started) return;
+  if (!started || menuSuspended) return;
   const SDL2 = window.Module?.SDL2 || window.SDL2;
   const all  = [...trackedAudioContexts];
   if (SDL2?.audioContext && !all.includes(SDL2.audioContext)) all.push(SDL2.audioContext);
@@ -3519,6 +3662,7 @@ async function createOrResumeAudioContext() {
 }
 
 async function unlockAudio() {
+  if (menuSuspended) return;
   // Collect ALL known contexts: SDL's + any tracked
   const sdlCtx = window.Module?.SDL2?.audioContext;
   const all = [...trackedAudioContexts];
@@ -3868,6 +4012,15 @@ if (!Number.isInteger(activeGamepadIndex)) activeGamepadIndex = -1;
 window.__ppssppActiveGamepadIndex = activeGamepadIndex;
 const nativeGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
 
+function maskGuideButton(pad) {
+  if (!pad || pad.mapping !== "standard" || !(pad.buttons[16]?.pressed || pad.buttons[16]?.value > 0.5)) return pad;
+  return {
+    id: pad.id, index: pad.index, connected: pad.connected, mapping: pad.mapping,
+    timestamp: performance.now(), axes: Array.from(pad.axes),
+    buttons: Array.from(pad.buttons, (button, index) => index === 16 ? { pressed: false, touched: false, value: 0 } : button),
+  };
+}
+
 function installGamepadSelectionFilter() {
   if (!nativeGetGamepads || navigator.__ppssppGamepadFiltered) return;
   try {
@@ -3880,9 +4033,10 @@ function installGamepadSelectionFilter() {
         timestamp: performance.now(), axes: Array.from(gp.axes, () => 0),
         buttons: Array.from(gp.buttons, () => ({ pressed: false, touched: false, value: 0 })),
       } : null);
-      if (!pads || !isActiveGamepadPresent()) return pads;
-
-      const filtered = Array.from(pads);
+      // SDL maps Guide directly to native pause. Reserve it here so a hold
+      // opens only the web dashboard; navigation reads the unfiltered stream.
+      const filtered = Array.from(pads || [], maskGuideButton);
+      if (!isActiveGamepadPresent()) return filtered;
       for (let i = 0; i < filtered.length; i++) {
         if (filtered[i] && filtered[i].index !== window.__ppssppActiveGamepadIndex)
           filtered[i] = null;
@@ -4538,6 +4692,9 @@ function failRuntime(message) {
   runtimeFailed = true;
   clearTimeout(window.ModuleStartupWatchdog);
   runtimeReady = false;
+  clearTimeout(menuResumeTimer);
+  document.body.classList.remove("session-resuming");
+  updateSessionDock();
   hideLoading();
   setStatus(message, "err");
   const failureMessage = byId("runtimeFailureMessage");
@@ -4565,6 +4722,7 @@ async function start() {
   try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
   started = true;
   document.body.classList.add("emulator-started");
+  setSessionPresentation(selectedStoredGame || selectedGame?.name || "");
   setPanelOpen(false, false);
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
@@ -4663,6 +4821,7 @@ async function start() {
       clearTimeout(window.ModuleStartupWatchdog);
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      setTimeout(() => { syncMenuSuspension(document.body.classList.contains("panel-open")); updateSessionDock(); }, 0);
       setStatus(gameArg ? "Game running" : "Library ready", "ok");
       hideLoading();
       setStartButtonMode("running");
@@ -5017,7 +5176,7 @@ function _showCursor() {
 }
 
 function isFullscreenActive() {
-  return !!fullscreenElement();
+  return !!fullscreenElement() || document.body.classList.contains("immersive-fullscreen");
 }
 
 function fullscreenTarget() {
@@ -5073,8 +5232,10 @@ async function exitBrowserFullscreen() {
 function handleFullscreenChange() {
   setFullscreenMenuOpen(false, false);
   syncFullscreenOverlays();
+  updateFullscreenControls();
   scheduleRuntimeResize(true);
   if (fullscreenElement()) {
+    document.body.classList.remove("immersive-fullscreen");
     _fsCursorTimer = setTimeout(_hideCursor, 2000);
     document.addEventListener("mousemove", _showCursor);
     document.addEventListener("pointerdown", _showCursor);
@@ -5089,32 +5250,26 @@ function handleFullscreenChange() {
 document.addEventListener("fullscreenchange", handleFullscreenChange);
 document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
 
-async function togglePPSSPPFullscreen() {
-  if (isFullscreenActive()) {
-    if (await exitBrowserFullscreen()) {
-      scheduleRuntimeResize(true);
-      return;
-    }
+function updateFullscreenControls() {
+  const active = isFullscreenActive();
+  for (const id of ["fullscreenBtn", "dashboardFullscreenBtn"]) {
+    const button = byId(id);
+    if (!button) continue;
+    const label = active ? "Exit fullscreen" : "Fullscreen";
+    button.setAttribute("aria-label", label); button.title = label; button.setAttribute("aria-pressed", String(active));
+    const text = button.querySelector("span"); if (text) text.textContent = label;
+    button.classList.toggle("is-fullscreen", active);
   }
-
-  if (await requestBrowserFullscreen()) {
-    scheduleRuntimeResize(true);
-    return;
-  }
-
-  const toggleFullscreen = window.Module?._PPSSPP_ToggleFullscreen;
-  if (typeof toggleFullscreen !== "function") {
-    log("Fullscreen toggle requested before PPSSPP runtime is ready.", "warn");
-    return;
-  }
-  toggleFullscreen();
-  scheduleRuntimeResize(true);
 }
-
-on(fullscreenBtn, "click", async () => {
+async function togglePPSSPPFullscreen() {
+  if (fullscreenElement()) await exitBrowserFullscreen();
+  else if (document.body.classList.contains("immersive-fullscreen")) document.body.classList.remove("immersive-fullscreen");
+  else if (!await requestBrowserFullscreen()) document.body.classList.add("immersive-fullscreen");
+  syncFullscreenOverlays(); updateFullscreenControls(); scheduleRuntimeResize(true);
+}
+for (const id of ["fullscreenBtn", "dashboardFullscreenBtn"]) on(id, "click", async () => {
   await togglePPSSPPFullscreen();
-  canvas?.focus();
-  describeAudio();
+  if (!document.body.classList.contains("panel-open")) canvas?.focus();
 });
 function setFullscreenMenuOpen(open, focus = true) {
   const toggle = byId("fsMenuToggle");
@@ -5150,7 +5305,7 @@ document.addEventListener("keydown", event => {
 on("fsPanelBtn", "click", () => setPanelOpen(!document.body.classList.contains("panel-open")));
 on("fsExitBtn", "click", async () => {
   setFullscreenMenuOpen(false, false);
-  await exitBrowserFullscreen();
+  await togglePPSSPPFullscreen();
   fullscreenBtn?.focus();
 });
 
@@ -5186,7 +5341,7 @@ if ("serviceWorker" in navigator) {
 
 // Dashboard navigation reads the original device stream, before SDL filtering.
 window.PPSSPPConsole = {
-  setOpen: setPanelOpen, setMenuOpen: setFullscreenMenuOpen, switchTab: activatePanelTab, closeGameInfo, closeSaveInfo,
+  nativeMenu: openNativeMenu, setOpen: setPanelOpen, setMenuOpen: setFullscreenMenuOpen, switchTab: activatePanelTab, fullscreen: togglePPSSPPFullscreen, closeGameInfo, closeSaveInfo,
   getGamepads: () => { try { return Array.from(nativeGetGamepads?.() || []); } catch (_) { return []; } },
   notify: showToast,
 };
@@ -5205,3 +5360,15 @@ on("opfsFileList", "click", event => {
   if (button.dataset.storageAction === "download") downloadStoredFile(button.dataset.path);
   else deleteStoredFile(button.dataset.path);
 });
+
+const menuMotionToggle = byId("menuMotionToggle");
+if (menuMotionToggle) {
+  menuMotionToggle.checked = preferences.getItem("ppsspp_menu_motion") !== "0";
+  document.body.classList.toggle("menu-motion-off", !menuMotionToggle.checked);
+  on(menuMotionToggle, "change", () => {
+    preferences.setItem("ppsspp_menu_motion", menuMotionToggle.checked ? "1" : "0");
+    document.body.classList.toggle("menu-motion-off", !menuMotionToggle.checked);
+  });
+}
+document.addEventListener("visibilitychange", () => document.body.classList.toggle("document-hidden", document.hidden));
+updateFullscreenControls();

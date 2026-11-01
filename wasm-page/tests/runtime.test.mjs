@@ -26,7 +26,7 @@ test('mobile keyboard preserves portrait height and tracks the visible viewport 
     const document = {
       activeElement: null,
       documentElement: { style: { setProperty: (key, value) => styles.set(key, value) } },
-      body: { classList: { toggle: (name, value) => classes.set(name, !!value) } },
+      body: { classList: { toggle: (name, value) => classes.set(name, !!value), contains: name => !!classes.get(name) } },
     };
     const ctx = load(['syncViewportSize', 'fullscreenElement', 'viewportOrientation', 'isTextEntryActive', 'revealPanelInput'],
       { window, document }, 'let stableViewportWidth = 0, stableViewportHeight = 0, stableViewportOrientation = "";');
@@ -297,7 +297,7 @@ test('failed preload never releases the dependency and starts the core without i
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: dep => removed.push(dep),
@@ -321,7 +321,7 @@ test('direct game launch also runs library automount before releasing startup', 
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    setSessionPresentation: noop, selectedStoredGame: null, selectedGame: null, setPanelOpen: noop, setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
@@ -633,4 +633,119 @@ test('PBP library metadata reads only the header, PARAM.SFO and embedded game ic
   reads.length = 0;
   assert.equal((await ctx.extractPbpMetadata('bad.pbp', new TrackedBlob([bad, sfo, icon]))).title, 'bad.pbp');
   assert.deepEqual(reads, [[0, 40]]);
+});
+
+test('menu suspension pauses once, cancels an interrupted resume and resumes once after the transition', async () => {
+  const classes = new Set(['emulator-started', 'panel-open']);
+  let pauses = 0, resumes = 0, snapshots = 0, unlocks = 0, timerID = 0, pins = 0;
+  const timers = new Map();
+  const audio = { state: 'running', suspend: async () => { audio.state = 'suspended'; } };
+  const ctx = load(['syncMenuSuspension', 'suspendMenuAudio', 'sessionIsMultiplayer'], {
+    runtimeReady: true, runtimeFailed: false, networkActiveConfig: { enabled: false }, trackedAudioContexts: [audio],
+    document: { body: { classList: { contains: name => classes.has(name), add: (...names) => names.forEach(n => classes.add(n)), remove: (...names) => names.forEach(n => classes.delete(n)) } } },
+    window: { Module: { runtimeKeepalivePush() { pins++; }, runtimeKeepalivePop() { pins--; }, pauseMainLoop() { pauses++; }, resumeMainLoop() { resumes++; } }, matchMedia: () => ({ matches: false }) },
+    captureSessionPreview() { snapshots++; }, updateSessionDock() {}, unlockAudio: async () => { unlocks++; }, log() {},
+    failRuntime: message => assert.fail(message), setPanelOpen() {},
+    setTimeout: callback => { timers.set(++timerID, callback); return timerID; }, clearTimeout: id => timers.delete(id),
+  }, 'let menuSuspended = false, menuResumeTimer = null, menuKeepaliveRelease = null;');
+  ctx.syncMenuSuspension(true); ctx.syncMenuSuspension(true);
+  await Promise.resolve();
+  assert.equal(pauses, 1); assert.equal(snapshots, 1); assert.equal(audio.state, 'suspended'); assert.equal(pins, 1);
+  classes.delete('panel-open'); ctx.syncMenuSuspension(false);
+  assert.equal(resumes, 0); assert.equal(timers.size, 1);
+  classes.add('panel-open'); ctx.syncMenuSuspension(true);
+  assert.equal(timers.size, 0); assert.equal(pauses, 1); assert.equal(unlocks, 0);
+  classes.delete('panel-open'); ctx.syncMenuSuspension(false);
+  [...timers.values()][0]();
+  assert.equal(resumes, 1); assert.equal(pins, 0); assert.equal(unlocks, 1); assert.equal(classes.has('session-suspended'), false);
+  ctx.syncMenuSuspension(false); assert.equal(resumes, 1);
+});
+
+test('a multiplayer menu and a runtime without pause controls keep running without claiming suspension', () => {
+  for (const mode of ['multiplayer', 'unsupported', 'failed', 'no-keepalive']) {
+    let pauses = 0, audioPauses = 0;
+    const classes = new Set(['emulator-started', 'panel-open']);
+    const ctx = load(['syncMenuSuspension', 'sessionIsMultiplayer'], {
+      runtimeReady: true, runtimeFailed: mode === 'failed', networkActiveConfig: { enabled: mode === 'multiplayer' },
+      document: { body: { classList: { contains: n => classes.has(n), add: n => classes.add(n), remove: n => classes.delete(n) } } },
+      window: { Module: mode === 'unsupported' ? {} : { ...(mode === 'no-keepalive' ? {} : { runtimeKeepalivePush() {}, runtimeKeepalivePop() {} }), pauseMainLoop() { pauses++; }, resumeMainLoop() {} } },
+      captureSessionPreview() {}, updateSessionDock() {}, suspendMenuAudio() { audioPauses++; }, clearTimeout() {}, log() {},
+    }, 'let menuSuspended = false, menuResumeTimer = null, menuKeepaliveRelease = null;');
+    ctx.syncMenuSuspension(true);
+    assert.equal(pauses, 0); assert.equal(audioPauses, 0); assert.equal(classes.has('session-suspended'), false);
+  }
+});
+
+test('reduced motion resumes immediately and background audio recovery respects menu suspension', async () => {
+  let resumed = 0;
+  const ctx = load(['syncMenuSuspension', 'unlockAudio', 'reportAudioStatus'], {
+    runtimeReady: true, runtimeFailed: false, started: true, trackedAudioContexts: [],
+    document: { body: { classList: { contains: n => n === 'emulator-started', add() {}, remove() {} } } },
+    window: { Module: { resumeMainLoop() { resumed++; }, SDL2: { audioContext: { state: 'suspended', resume: async () => { resumed++; } } } }, matchMedia: () => ({ matches: true }) },
+    clearTimeout() {}, updateSessionDock() {},
+  }, 'let menuSuspended = true, menuResumeTimer = null, menuKeepaliveRelease = null;');
+  await ctx.unlockAudio(); await ctx.reportAudioStatus(); assert.equal(resumed, 0);
+  ctx.syncMenuSuspension(false); await Promise.resolve(); assert.equal(resumed, 2);
+});
+
+test('opening the menu releases held gameplay keys before trapping UI keyboard events', () => {
+  const events = [];
+  const window = {};
+  const ctx = load(['releaseGameplayKeyboard'], {
+    window, canvas: { dispatchEvent: e => events.push([e.type, e.code, window.__ppssppReleasingKeys]) },
+    KeyboardEvent: class { constructor(type, init) { Object.assign(this, { type }, init); } },
+  }, 'const gameplayKeys = new Map([["ArrowUp", { key: "ArrowUp", code: "ArrowUp", keyCode: 38 }], ["KeyZ", { key: "z", code: "KeyZ", keyCode: 90 }]]);');
+  ctx.releaseGameplayKeyboard(); ctx.releaseGameplayKeyboard();
+  assert.deepEqual(events, [['keyup', 'ArrowUp', true], ['keyup', 'KeyZ', true]]);
+  assert.equal(window.__ppssppReleasingKeys, false);
+});
+
+test('fullscreen uses an immersive shell fallback when the browser denies the request and exits it cleanly', async () => {
+  const classes = new Set(); let requested = 0, synced = 0;
+  const ctx = load(['togglePPSSPPFullscreen'], {
+    fullscreenElement: () => null,
+    document: { body: { classList: { contains: n => classes.has(n), add: n => classes.add(n), remove: n => classes.delete(n) } } },
+    requestBrowserFullscreen: async () => { requested++; return false; },
+    syncFullscreenOverlays() { synced++; }, updateFullscreenControls() {}, scheduleRuntimeResize() {},
+  });
+  await ctx.togglePPSSPPFullscreen(); assert.equal(classes.has('immersive-fullscreen'), true); assert.equal(requested, 1);
+  await ctx.togglePPSSPPFullscreen(); assert.equal(classes.has('immersive-fullscreen'), false); assert.equal(requested, 1); assert.equal(synced, 2);
+});
+
+test('Guide reservation leaves gameplay inputs and nonstandard pads intact', () => {
+  const ctx = load(['maskGuideButton'], { performance: { now: () => 123 } });
+  const buttons = Array.from({ length: 17 }, (_, index) => ({ pressed: [0, 16].includes(index), touched: true, value: [0, 16].includes(index) ? 1 : 0 }));
+  const pad = { id: 'DualSense', index: 0, mapping: 'standard', connected: true, axes: [0.7, -0.2], buttons };
+  const filtered = ctx.maskGuideButton(pad);
+  assert.equal(filtered.buttons[16].pressed, false);
+  assert.equal(filtered.buttons[16].value, 0);
+  assert.equal(filtered.buttons[0], buttons[0]);
+  assert.deepEqual([...filtered.axes], pad.axes);
+  assert.equal(filtered.id, pad.id); assert.equal(filtered.connected, true);
+  assert.equal(buttons[16].pressed, true);
+  const generic = { ...pad, mapping: '' };
+  assert.equal(ctx.maskGuideButton(generic), generic);
+  assert.equal(ctx.maskGuideButton(null), null);
+});
+
+test('native menu waits for session resume, sends one Escape pulse and cancels on web menu reopen', () => {
+  const timers = new Map(), keys = [], classes = new Set(['panel-open']);
+  let tick = 0, notified = 0;
+  const window = {};
+  const ctx = load(['openNativeMenu'], {
+    window, document: { body: { classList: { contains: name => classes.has(name) } } },
+    performance: { now: () => tick }, KeyboardEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); } },
+    canvas: { focus() {}, dispatchEvent(e) { keys.push({ ...e, native: window.__ppssppNativeMenuKey }); } },
+    releaseGameplayKeyboard() {}, setFullscreenMenuOpen() {}, showToast() { notified++; },
+    setPanelOpen() { classes.delete('panel-open'); },
+    setTimeout(fn) { timers.set(++tick, fn); return tick; }, clearTimeout(id) { timers.delete(id); },
+  }, 'let nativeMenuTimer = null, runtimeReady = true, runtimeFailed = false, menuSuspended = true;');
+  const flush = () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); };
+  ctx.openNativeMenu(); assert.equal(keys.length, 0);
+  vm.runInContext('menuSuspended = false', ctx); flush();
+  assert.equal(keys.length, 1); assert.equal(keys[0].type, 'keydown'); assert.equal(keys[0].keyCode, 27); assert.equal(keys[0].native, true);
+  flush(); assert.equal(keys[1].type, 'keyup'); assert.equal(window.__ppssppNativeMenuKey, false);
+  vm.runInContext('menuSuspended = true', ctx); ctx.openNativeMenu(); classes.add('panel-open'); flush();
+  assert.equal(keys.length, 2);
+  vm.runInContext('runtimeReady = false', ctx); ctx.openNativeMenu(); assert.equal(notified, 1);
 });

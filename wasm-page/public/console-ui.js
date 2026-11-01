@@ -1,15 +1,16 @@
 /* Console navigation is independent of Angular and of SDL's filtered input stream. */
 (() => {
-  const defaults = { up: 12, down: 13, left: 14, right: 15, confirm: 0, back: 1, previous: 4, next: 5 };
+  const defaults = { up: 12, down: 13, left: 14, right: 15, confirm: 0, back: 1, previous: 4, next: 5, fullscreen: 3 };
   const directions = ['up', 'down', 'left', 'right'];
   const pressed = (pad, index) => !!pad.buttons[index]?.pressed || pad.buttons[index]?.value > 0.5;
   function readActions(pad, mapping = defaults, previous = new Set()) {
     const result = new Set();
-    for (const [action, index] of Object.entries(mapping)) if (pressed(pad, index)) result.add(action);
+    for (const [action, index] of Object.entries(mapping)) if (!(pad.mapping === 'standard' && index === 16) && pressed(pad, index)) result.add(action);
     // A little hysteresis prevents drift around the activation threshold.
     for (const [action, axis, sign] of [['left', 0, -1], ['right', 0, 1], ['up', 1, -1], ['down', 1, 1]]) {
       if ((pad.axes[axis] || 0) * sign > (previous.has(action) ? 0.35 : 0.55)) result.add(action);
     }
+    if (mapping.fullscreen === undefined && !Object.values(mapping).includes(3) && pressed(pad, 3)) result.add('fullscreen');
     if (mapping.menu === undefined && pressed(pad, 10) && pressed(pad, 11)) result.add('menu');
     return result;
   }
@@ -27,6 +28,19 @@
     for (const action of state.held) if (!actions.has(action)) state.repeat.delete(action);
     state.held = actions;
     return events;
+  }
+  // Guide/PS is reserved on standard pads. Decide a tap only on release.
+  function sampleGuideButton(state, down, now, holdMs = 650) {
+    if (down) {
+      if (state.guideStart === undefined) { state.guideStart = now; state.guideFired = false; }
+      if (!state.guideFired && now - state.guideStart >= holdMs) {
+        state.guideFired = true; return 'web-menu';
+      }
+    } else if (state.guideStart !== undefined) {
+      const event = state.guideFired ? null : now - state.guideStart >= holdMs ? 'web-menu' : 'native-menu';
+      delete state.guideStart; state.guideFired = false; return event;
+    }
+    return null;
   }
   function spatialTarget(origin, candidates, direction) {
     const horizontal = direction === 'left' || direction === 'right';
@@ -48,7 +62,7 @@
     return best;
   }
   // Also exposed for deterministic regression tests without starting a browser.
-  window.PPSSPPConsoleNavigation = { readActions, sampleActions, spatialTarget, neutral, defaults };
+  window.PPSSPPConsoleNavigation = { readActions, sampleActions, sampleGuideButton, spatialTarget, neutral, defaults };
   if (!window.PPSSPPConsole) return;
   const bridge = window.PPSSPPConsole;
   const byId = id => document.getElementById(id);
@@ -71,7 +85,10 @@
     return byId(fullscreenMenuOpen() ? 'fsMenuActions' : recoveryOpen() ? 'runtimeRecovery' : 'sidePanel');
   }
   function controls() {
-    return [...root().querySelectorAll(controlsSelector)].filter(el => !el.disabled && !el.closest('[inert], [hidden], .disabled') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    const container = root();
+    const headerControls = container === byId('sidePanel') && !document.fullscreenElement && !document.webkitFullscreenElement ? [byId('fullscreenBtn')] : [];
+    const toolbarControls = container === byId('fsMenuActions') ? [byId('fsExitBtn')] : [];
+    return [...headerControls, ...container.querySelectorAll(controlsSelector), ...toolbarControls].filter(el => el && !el.disabled && !el.closest('[inert], [hidden], .disabled') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
   }
   function focus(el) { el?.focus({ preventScroll: true }); el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); }
   function prepareLabels() {
@@ -190,6 +207,19 @@
   }
   function action(name) {
     body.classList.add('console-controller');
+    if (name === 'native-menu') {
+      if (dialog) closeDialog();
+      if (byId('gameInfoModal')?.classList.contains('visible')) bridge.closeGameInfo();
+      if (byId('saveInfoModal')?.classList.contains('visible')) bridge.closeSaveInfo();
+      bridge.nativeMenu(); return;
+    }
+    if (name === 'web-menu') {
+      if (dialog) closeDialog();
+      if (byId('gameInfoModal')?.classList.contains('visible')) bridge.closeGameInfo();
+      if (byId('saveInfoModal')?.classList.contains('visible')) bridge.closeSaveInfo();
+      bridge.setOpen(true); return;
+    }
+    if (name === 'fullscreen') { if (uiOpen() && !dialog) void bridge.fullscreen(); return; }
     if (name === 'menu') { if (dialog) back(); else bridge.setOpen(!body.classList.contains('panel-open')); return; }
     if (!uiOpen()) return;
     if (directions.includes(name)) navigate(name);
@@ -219,7 +249,7 @@
     if (!pad.buttons.some(b => b.pressed || b.value > 0.5)) { mappingStep.armed = true; return; }
     if (!mappingStep.armed) return;
     const index = pad.buttons.findIndex(b => b.pressed || b.value > 0.5);
-    if (Object.values(mappingStep.mapping).includes(index)) return;
+    if ((pad.mapping === 'standard' && index === 16) || Object.values(mappingStep.mapping).includes(index)) return;
     mappingStep.mapping[mappingActions[mappingStep.step++]] = index; mappingStep.armed = false;
     if (mappingStep.step === mappingActions.length) {
       mappings[mappingStep.id] = mappingStep.mapping;
@@ -239,6 +269,8 @@
   }));
   // Capture before SDL's window listeners; leave browser editing/default behavior intact.
   window.addEventListener('keydown', event => {
+    if (window.__ppssppNativeMenuKey) return;
+    if (event.key === 'F10' || (event.key === 'Escape' && body.classList.contains('immersive-fullscreen') && !uiOpen())) { event.preventDefault(); event.stopImmediatePropagation(); void bridge.fullscreen(); return; }
     if (event.key === 'F1' && !dialog) { event.preventDefault(); event.stopImmediatePropagation(); bridge.setOpen(!body.classList.contains('panel-open')); return; }
     if (!uiOpen()) return;
     const el = document.activeElement;
@@ -254,7 +286,7 @@
     if (event.defaultPrevented) event.stopImmediatePropagation();
   }, true);
   document.addEventListener('keydown', event => { if (uiOpen()) event.stopPropagation(); });
-  window.addEventListener('keyup', event => { if (uiOpen()) event.stopImmediatePropagation(); }, true);
+  window.addEventListener('keyup', event => { if (uiOpen() && !window.__ppssppReleasingKeys) event.stopImmediatePropagation(); }, true);
   document.addEventListener('visibilitychange', () => { states.clear(); releaseGate = true; });
   function poll(now) {
     requestAnimationFrame(poll);
@@ -279,6 +311,8 @@
       if (state.id !== pad.id) { states.delete(pad.index); continue; }
       if (!state.ready) { state.ready = neutral(pad); continue; }
       const events = sampleActions(state, readActions(pad, mapping, state.held), now);
+      const guide = sampleGuideButton(state, pad.mapping === 'standard' && pressed(pad, 16), now);
+      if (guide) events.push(guide);
       for (const name of events) {
         byId('consoleInputStatus').textContent = (pad.mapping === 'standard' ? 'Controller' : mappings[pad.id] ? 'Custom controller' : 'Generic · configure in System') + ' · connected';
         action(name);

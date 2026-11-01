@@ -56,3 +56,37 @@ test('spatial movement follows rows and columns without jumping diagonally or wr
   assert.equal(spatialTarget(rect(0, 0), candidates, 'left'), 'behind');
   assert.equal(spatialTarget(rect(0, 0), candidates, 'up'), null);
 });
+
+test('fullscreen is a separate edge action and does not conflict with a custom face-button mapping', () => {
+  assert.deepEqual([...readActions(pad([3]))], ['fullscreen']);
+  assert.deepEqual([...readActions(pad([3]), { confirm: 3, back: 2 })], ['confirm']);
+  assert.deepEqual([...readActions(pad([3]), { confirm: 0, back: 1 })], ['fullscreen']);
+  const state = { held: new Set(), repeat: new Map() };
+  assert.deepEqual([...sampleActions(state, new Set(['fullscreen']), 0)], ['fullscreen']);
+  assert.deepEqual([...sampleActions(state, new Set(['fullscreen']), 1000)], []);
+});
+
+test('Guide tap waits for release and long press opens only the web menu once', () => {
+  const { sampleGuideButton: sample } = context.window.PPSSPPConsoleNavigation;
+  const state = {};
+  assert.equal(sample(state, true, 0), null);
+  assert.equal(sample(state, true, 400), null);
+  assert.equal(sample(state, false, 401), 'native-menu');
+  assert.equal(sample(state, false, 500), null);
+  assert.equal(sample(state, true, 600), null);
+  assert.equal(sample(state, true, 1249), null);
+  assert.equal(sample(state, true, 1250), 'web-menu');
+  assert.equal(sample(state, true, 2000), null);
+  assert.equal(sample(state, false, 2100), null);
+  assert.equal(sample(state, true, 2200), null);
+  assert.equal(sample(state, false, 2300), 'native-menu');
+});
+test('Guide hold still works across a dropped frame and cannot be remapped to another UI action', () => {
+  const { sampleGuideButton: sample } = context.window.PPSSPPConsoleNavigation;
+  const state = {};
+  sample(state, true, 100);
+  assert.equal(sample(state, false, 800), 'web-menu');
+  assert.equal(sample(state, false, 900), null);
+  assert.deepEqual([...readActions({ ...pad([16]), mapping: 'standard' }, { confirm: 16 })], []);
+  assert.deepEqual([...readActions(pad([16]), { confirm: 16 })], ['confirm']);
+});

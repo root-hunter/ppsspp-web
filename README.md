@@ -138,7 +138,10 @@ selectable tile; saves are grouped by game with their PSP icons and state
 previews. Search, sorting and horizontal sections provide access to games, saves,
 multiplayer, cloud and system settings. D-pad/left stick,
 face buttons and shoulders navigate the dashboard; L3 + R3 or F1 opens it during
-play. Fullscreen includes the dashboard and its dialogs. See
+play. Local sessions pause in the menu and resume after a short transition;
+multiplayer stays live. Animated PSP-style waves can be disabled in System.
+Fullscreen is available from the header or F10 and includes the dashboard and
+its dialogs. See
 [console navigation](docs/console-ui.md) for mappings and browser limitations.
 These improvements adapt ideas from the power8koch-alt, noreturningfromthis,
 bee-san and BeezBumba forks.

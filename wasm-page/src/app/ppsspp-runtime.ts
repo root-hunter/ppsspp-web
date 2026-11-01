@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-console-collections-v2';
+const RUNTIME_ASSET_VERSION = '2026-11-01-guide-menu-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
