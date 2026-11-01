@@ -147,9 +147,12 @@ paused audio, release of held keys and fullscreen fallback. `npm run build` chec
 Games → Discover PSP demos loads the 202-entry PlayDreamCreate catalog from
 `https://playdreamcreate.com/data/demos.json`. The source currently returns the
 full catalog even with `?search=...`; title/product-code search and region filters
-run locally. Each card offers Download & install, a direct Download ZIP fallback,
-and Open installed demo after installation. Downloads show byte progress and can
-be cancelled before extraction. Installed games persist in OPFS and use the normal
+run locally. The catalog shows twelve cards per page with All demos / Installed
+views, title/region filters, alphabetical or smallest-first sorting, and accessible
+Previous / Next controls. Filtering resets the page; switching pages focuses the
+first available demo action. Empty, loading and retry states remain explicit.
+Cards use local typographic artwork and offer Install demo, a direct ZIP fallback,
+and Open demo after installation. Installed games persist in OPFS and use the normal
 game details, embedded artwork, preload and emulator workflows.
 
 `server/serve.py` serves `GET /api/demos/catalog` and
@@ -179,3 +182,30 @@ A Chrome end-to-end check downloaded Ape Academy 2 (UCES00302), verified its
 embedded title/artwork, reloaded to confirm persistence, and booted its EBOOT in
 the existing PPSSPP WASM core. This verifies that demo; compatibility for other
 titles still depends on the emulator and individual demo.
+
+
+### Demo installation feedback
+
+A persistent activity card reports Download → Extract → Install, using network
+bytes, decompressed bytes and completed storage writes for each stage's percentage.
+The percentage refers to the current stage, not a simulated overall timer. Unknown
+network sizes remain indeterminate; download speed and estimated remaining time
+appear only after enough transfer time has elapsed. The download can be cancelled;
+extraction and storage finish without exposing an unsafe partial cancellation.
+
+The header activity button shows the current phase/percentage across dashboard
+sections and opens the activity card. Success stays visible with Open demo and
+Dismiss; failures offer Try again plus the direct ZIP fallback. Cancellation keeps
+a retry action. Keep browsing returns to search without interrupting installation.
+Stage changes and occasional download milestones are announced to screen readers;
+chunk updates do not repeatedly announce the entire panel. Completion does not
+move focus away from browsing controls. If Cancel disappears during a phase change,
+focus moves to an available activity action. The header activity action also
+participates in controller navigation. Mobile layouts and reduced-motion settings
+are supported.
+
+Additional tests cover combined filtering/sorting/pagination, measured transfer
+metrics, extraction/install byte callbacks and focus across terminal states.
+A throttled Chrome check exercised real download cancellation/retry, all three
+installation phases, persistent success, cross-section activity navigation,
+recoverable server errors and a 390px mobile viewport without horizontal overflow.

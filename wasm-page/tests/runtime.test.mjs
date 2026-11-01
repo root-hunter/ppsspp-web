@@ -782,3 +782,52 @@ test('ISO ZIP imports remain plain games without a PBP package manifest', async 
   await ctx.installGameArchive({name: 'demo.zip', arrayBuffer: async () => new ArrayBuffer(0)});
   assert.deepEqual(writes, ['game.iso']);
 });
+
+test('installation progress accounts for companion and executable bytes only after writes finish', async () => {
+  const events = [], writes = [];
+  const ctx = load(['installGameArchive'], {
+    window: { PPSSPPDemos: { unzip: async (_, onProgress) => { await onProgress({completed: 3, total: 3}); return []; },
+      packages: () => [{name: 'demo.pbp', boot: true, data: new Uint8Array([1, 2]), files: [{name: 'data.bin', data: new Uint8Array([3])}]}] } },
+    opfsMetaPut: async name => writes.push(name), opfsPutGame: async name => writes.push(name),
+  });
+  await ctx.installGameArchive({name: 'demo.zip', arrayBuffer: async () => new ArrayBuffer(0)}, null, event => events.push({...event, writes: writes.length}));
+  assert.equal(events[0].phase, 'extract');
+  const install = events.filter(event => event.phase === 'install');
+  assert.deepEqual(install.map(event => event.completed), [0, 1, 3]);
+  assert.equal(install[1].writes, 1);
+  assert.equal(install[2].writes, 3);
+  assert(install.every(event => event.total === 3));
+});
+
+test('transfer notifications preserve browsing focus and recover a Cancel button removed by completion', () => {
+  const elements = new Map(), body = {}, document = {body, activeElement: body};
+  const byId = id => {
+    if (!elements.has(id)) elements.set(id, { id, hidden: false, dataset: {}, attributes: {}, textContent: '',
+      setAttribute(key, value) { this.attributes[key] = value; }, removeAttribute(key) { delete this.attributes[key]; },
+      focus() { document.activeElement = this; }, contains(el) { return !!el?.id?.startsWith('demo') && el.id !== 'demoSearch' && el.id !== 'demoActivityBtn'; },
+      querySelectorAll: () => steps,
+    });
+    return elements.get(id);
+  };
+  const steps = ['download', 'extract', 'install'].map(phase => ({dataset: {demoStep: phase}, setAttribute() {}, removeAttribute() {}}));
+  const transfer = {phase: 'download', activePhase: 'download', title: 'Test demo', percent: null};
+  const ctx = load(['updateDemoTransfer'], {byId, document, demoTransfer: transfer, svgIcon: () => '<svg></svg>'});
+  document.activeElement = byId('demoSearch');
+  ctx.updateDemoTransfer({percent: 25, detail: '1 MB / 4 MB'});
+  assert.equal(document.activeElement.id, 'demoSearch');
+  assert.equal(byId('demoTransfer').hidden, false);
+  assert.equal(byId('demoActivityBtn').hidden, false);
+  assert.equal(byId('demoProgress').value, 25);
+  document.activeElement = body;
+  ctx.updateDemoTransfer({phase: 'cancelled', percent: null, focusAfterCancel: true}, true);
+  assert.equal(document.activeElement.id, 'demoRetryBtn');
+  assert.equal(byId('demoRetryBtn').hidden, false);
+  assert.equal(byId('demoProgress').hidden, true);
+  document.activeElement = byId('demoSearch');
+  ctx.updateDemoTransfer({phase: 'install', percent: 100});
+  ctx.updateDemoTransfer({phase: 'ready'}, true);
+  assert.equal(document.activeElement.id, 'demoSearch');
+  assert.equal(byId('demoOpenBtn').hidden, false);
+  assert(steps.every(step => step.dataset.state === 'done'));
+  assert.match(byId('demoAnnouncement').textContent, /Ready to play/);
+});

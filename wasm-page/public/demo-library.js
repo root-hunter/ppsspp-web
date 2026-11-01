@@ -24,7 +24,7 @@
     if (!path || path.includes('\\') || path.startsWith('/') || path.includes(':') || /[\x00-\x1f]/.test(path) || path.split('/').some(p => p === '..' || p === '.')) throw new Error('Unsafe ZIP path');
     return path;
   }
-  async function unzip(input) {
+  async function unzip(input, onProgress = () => {}) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (bytes.length > MAX_BYTES) throw new Error('ZIP exceeds 512 MB');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -62,6 +62,8 @@
     }
     if (offset !== directoryEnd) throw new Error('Invalid ZIP directory size');
     const files = [];
+    let extracted = 0;
+    await onProgress({ completed: 0, total, files: entries.length, name: "" });
     for (const entry of entries) {
       let data = entry.compressed;
       if (entry.method === 8) {
@@ -76,12 +78,15 @@
           size += part.value.length;
           if (size > entry.size) { await reader.cancel(); throw new Error('Invalid ZIP expanded size'); }
           chunks.push(part.value);
+          await onProgress({ completed: extracted + size, total, files: entries.length, name: entry.name });
         }
         data = new Uint8Array(size); let at = 0;
         for (const chunk of chunks) { data.set(chunk, at); at += chunk.length; }
       }
       if (data.length !== entry.size || crc32(data) !== entry.crc) throw new Error('ZIP checksum mismatch: ' + entry.name);
       files.push({ name: entry.name, data });
+      extracted += entry.size;
+      await onProgress({ completed: extracted, total, files: entries.length, name: entry.name });
     }
     return files;
   }
@@ -98,5 +103,25 @@
     if (!games.length) throw new Error('No PSP game found in ZIP');
     return games.map(f => ({ name: f.name.split('/').pop(), data: f.data, files: [] }));
   }
-  globalThis.PPSSPPDemos = { catalog, unzip, packages, safePath, crc32 };
+  function browse(records, installed, options = {}) {
+    const query = (options.query || '').trim().toLocaleLowerCase();
+    const matches = records.filter(d => (!options.region || d.region === options.region)
+      && (!options.installedOnly || installed.has(d.name))
+      && (d.title + ' ' + d.productCode + ' ' + d.region).toLocaleLowerCase().includes(query));
+    matches.sort((a, b) => options.sort === 'size'
+      ? (a.fileSizeBytes || 0) - (b.fileSizeBytes || 0) || a.title.localeCompare(b.title)
+      : (options.sort === 'title-desc' ? -1 : 1) * a.title.localeCompare(b.title));
+    const pageSize = Math.max(1, options.pageSize || 12);
+    const pages = Math.max(1, Math.ceil(matches.length / pageSize));
+    const page = Math.min(pages, Math.max(1, options.page || 1));
+    return { records: matches.slice((page - 1) * pageSize, page * pageSize), total: matches.length, page, pages,
+      first: matches.length ? (page - 1) * pageSize + 1 : 0, last: Math.min(page * pageSize, matches.length) };
+  }
+  function transferMetrics(received, total, started, now) {
+    const elapsed = Math.max(0, (now - started) / 1000);
+    const speed = elapsed >= 1 ? received / elapsed : 0;
+    return { percent: total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null,
+      speed, remaining: total > received && speed > 0 ? Math.ceil((total - received) / speed) : null };
+  }
+  globalThis.PPSSPPDemos = { catalog, unzip, packages, safePath, crc32, browse, transferMetrics };
 })();

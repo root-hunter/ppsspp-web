@@ -53,3 +53,36 @@ test('catalog accepts only the expected HTTPS download origin', () => {
   const records = api.catalog([good, {...good, url: 'https://evil.example/demo.zip'}, {...good, url: 'https://data.playdreamcreate.com/a.zip?redirect=x'}]);
   assert.equal(records.length, 1); assert.equal(records[0].region, 'EU'); assert.equal(records[0].name, 'UCES00302.pbp');
 });
+
+test('catalog browsing combines filters, sorts without mutating source and clamps pagination', () => {
+  const records = Array.from({length: 25}, (_, i) => ({title: `Game ${String(i).padStart(2, '0')}`, productCode: 'ID' + i, region: i % 2 ? 'JP' : 'EU', name: i + '.pbp', fileSizeBytes: 100 - i}));
+  const owned = new Set(['0.pbp', '2.pbp']);
+  const first = api.browse(records, owned);
+  assert.equal(first.records.length, 12); assert.equal(first.pages, 3);
+  const last = api.browse(records, owned, {page: 100});
+  assert.equal(last.page, 3); assert.equal(last.first, 25); assert.equal(last.last, 25);
+  const installed = api.browse(records, owned, {installedOnly: true, region: 'EU', sort: 'size'});
+  assert.equal(installed.total, 2); assert.equal(installed.records[0].name, '2.pbp');
+  const searched = api.browse(records, owned, {query: ' id21 ', region: 'JP'});
+  assert.equal(searched.total, 1); assert.equal(searched.records[0].name, '21.pbp');
+  assert.equal(api.browse(records, owned, {query: 'missing', page: 5}).first, 0);
+  assert.equal(api.browse(records, owned, {sort: 'title-desc'}).records[0].name, '24.pbp');
+  assert.equal(records[0].name, '0.pbp');
+});
+test('transfer metrics use measured bytes and time and never invent unknown percentages or ETA', () => {
+  const starting = api.transferMetrics(100, 1000, 0, 500);
+  assert.equal(starting.speed, 0); assert.equal(starting.remaining, null);
+  const running = api.transferMetrics(400, 1000, 0, 2000);
+  assert.equal(running.percent, 40); assert.equal(running.speed, 200); assert.equal(running.remaining, 3);
+  const unknown = api.transferMetrics(400, 0, 0, 2000);
+  assert.equal(unknown.percent, null); assert.equal(unknown.remaining, null);
+  assert.equal(api.transferMetrics(1100, 1000, 0, 2000).percent, 100);
+});
+test('extraction reports real uncompressed byte progress before and after verifying entries', async () => {
+  const events = [];
+  await api.unzip(zip([['EBOOT.PBP', pbp], ['data.bin', [1, 2, 3]]]), event => events.push(event));
+  assert.equal(events[0].completed, 0);
+  assert.equal(events.at(-1).completed, 43);
+  assert.equal(events.at(-1).total, 43);
+  assert(events.every((event, i) => !i || event.completed >= events[i - 1].completed));
+});

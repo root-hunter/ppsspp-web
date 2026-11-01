@@ -294,6 +294,7 @@ async function selectBuildDir() {
 /* ── DOM refs ───────────────────────────────────────────────────── */
 /* ── Lucide SVG helper (for dynamically injected HTML) ──────────── */
 const LUCIDE_PATHS = {
+  refresh: '<path d="M3 11a9 9 0 0 1 15.7-5.7L21 8M21 3v5h-5M21 13a9 9 0 0 1-15.7 5.7L3 16M8 16H3v5"/>',
   play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
   pause:    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
@@ -1494,19 +1495,28 @@ async function refreshLibrary() {
 }
 
 /* Demo installs keep EBOOT companions together, outside the flat game index. */
-async function installGameArchive(file, preferredName) {
+async function installGameArchive(file, preferredName, onProgress = () => {}) {
   if (file.size > 512 * 1024 * 1024) throw new Error("ZIP exceeds 512 MB");
-  const files = await window.PPSSPPDemos.unzip(new Uint8Array(await file.arrayBuffer()));
+  const files = await window.PPSSPPDemos.unzip(new Uint8Array(await file.arrayBuffer()), event => onProgress({ phase: "extract", ...event }));
   const packages = window.PPSSPPDemos.packages(files, file.name);
   const names = [];
+  const total = packages.reduce((sum, pkg) => sum + pkg.data.length + pkg.files.reduce((bytes, entry) => bytes + entry.data.length, 0), 0);
+  let completed = 0;
+  await onProgress({ phase: "install", completed, total });
   for (const pkg of packages) {
     const name = (packages.length === 1 && preferredName ? preferredName : pkg.name).replace(/[^a-zA-Z0-9._-]/g, "_");
     // Write companions and manifest before publishing the executable to the library.
     if (pkg.boot) {
-      for (const entry of pkg.files) await opfsMetaPut(name + ".files/" + entry.name, entry.data);
+      for (const entry of pkg.files) {
+        await opfsMetaPut(name + ".files/" + entry.name, entry.data);
+        completed += entry.data.length;
+        await onProgress({ phase: "install", completed, total });
+      }
       await opfsMetaPut(name + ".package.json", new TextEncoder().encode(JSON.stringify(pkg.files.map(f => f.name))));
     }
     await opfsPutGame(name, pkg.data);
+    completed += pkg.data.length;
+    await onProgress({ phase: "install", completed, total });
     names.push(name);
   }
   return names;
@@ -1530,23 +1540,72 @@ async function mountStoredGamePackage(FS, name) {
 }
 
 let demoCatalog = [], demoInstalled = new Set(), demoAbort = null, demoBusy = false;
+let demoPage = 1, demoInstalledOnly = false, demoCatalogState = "idle", demoTransfer = null;
 function renderDemos() {
   const grid = byId("demoGrid");
   if (!grid) return;
-  const query = (byId("demoSearch")?.value || "").trim().toLocaleLowerCase();
-  const region = byId("demoRegion")?.value || "";
-  const demos = demoCatalog.filter(d => (!region || d.region === region) && (d.title + " " + d.productCode + " " + d.region).toLocaleLowerCase().includes(query));
-  replaceCollectionContent(grid, demos.map(d => {
-    const installed = demoInstalled.has(d.name);
-    return `<article class="demo-card"><h3>${esc(d.title)}</h3><p>${esc(d.region)} · ${esc(d.productCode)} · ${formatBytes(d.fileSizeBytes || 0)}</p><div class="action-row"><button type="button" data-demo="${esc(d.url)}" data-focus-key="demo-${esc(d.productCode)}" aria-label="${installed ? "Open installed demo" : "Download and install"} ${esc(d.title)}" ${demoBusy && !installed ? 'disabled' : ''}>${svgIcon(installed ? "play" : "download")} ${installed ? "Open installed demo" : "Download & install"}</button><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Download ZIP</a></div></article>`;
-  }).join(""));
-  if (!demoBusy && demoCatalog.length) byId("demoStatus").textContent = demos.length + " of " + demoCatalog.length + " demos · " + demoCatalog.filter(d => demoInstalled.has(d.name)).length + " installed";
+  const query = byId("demoSearch")?.value || "", region = byId("demoRegion")?.value || "";
+  const sort = byId("demoSort")?.value || "title";
+  const result = window.PPSSPPDemos.browse(demoCatalog, demoInstalled, { query, region, sort, installedOnly: demoInstalledOnly, page: demoPage });
+  demoPage = result.page;
+  const installedCount = demoCatalog.filter(d => demoInstalled.has(d.name)).length;
+  byId("demoTotalCount").textContent = demoCatalog.length || "—";
+  byId("demoInstalledCount").textContent = installedCount;
+  byId("demoAllBtn").setAttribute("aria-pressed", String(!demoInstalledOnly));
+  byId("demoInstalledBtn").setAttribute("aria-pressed", String(demoInstalledOnly));
+  byId("demoResetBtn").hidden = !query && !region && sort === "title" && !demoInstalledOnly;
+  grid.setAttribute("aria-busy", String(demoCatalogState === "loading"));
+  const empty = byId("demoEmpty");
+  empty.hidden = result.total > 0 || demoCatalogState === "loading";
+  const states = {
+    idle: ["A whole catalog to explore", "Browse free PSP demos from PlayDreamCreate. Download, install, and open them right here."],
+    error: ["The catalog is taking a break", "Your installed games are safe. Select Retry catalog to reconnect."],
+    ready: demoInstalledOnly && !query && !region
+      ? ["Your discoveries will live here", "Install a demo from All demos to start your collection."]
+      : ["No demos found", "Try another title or region, or clear your filters to explore the full catalog."],
+  };
+  const emptyCopy = states[demoCatalogState] || states.idle;
+  byId("demoEmptyTitle").textContent = emptyCopy[0];
+  byId("demoEmptyDetail").textContent = emptyCopy[1];
+  if (demoCatalogState === "loading" && !demoCatalog.length) {
+    replaceCollectionContent(grid, Array.from({ length: 6 }, () => '<div class="demo-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>').join(""));
+  } else {
+    replaceCollectionContent(grid, result.records.map(d => {
+      const installed = demoInstalled.has(d.name), active = demoBusy && demoTransfer?.url === d.url;
+      const initials = d.title.split(/\s+/).slice(0, 2).map(word => [...word][0]).join("").toUpperCase();
+      const tone = [...d.productCode].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 5;
+      const action = installed ? "Open demo" : active ? "Installing…" : "Install demo";
+      return `<article class="demo-card demo-tone-${tone} ${installed ? 'is-installed' : ''} ${active ? 'is-installing' : ''}" aria-labelledby="demo-title-${esc(d.productCode)}">
+        <div class="demo-card-art" aria-hidden="true"><span class="demo-card-platform">PSP / DEMO</span><span class="demo-monogram">${esc(initials)}</span><span class="demo-card-orbit"></span></div>
+        <div class="demo-card-content"><div class="demo-card-labels"><span class="demo-region">${esc(d.region)}</span><span class="demo-card-size">${formatBytes(d.fileSizeBytes || 0)}</span>${installed ? '<span class="demo-installed-label">✓ Installed</span>' : ''}${active ? '<span class="demo-installed-label">In progress</span>' : ''}</div>
+        <h3 id="demo-title-${esc(d.productCode)}">${esc(d.title)}</h3><p class="demo-code">${esc(d.productCode)}</p>
+        <div class="demo-card-actions"><button type="button" class="${installed ? '' : 'primary'}" data-demo="${esc(d.url)}" data-focus-key="demo-${esc(d.productCode)}" aria-label="${installed ? 'Open' : 'Install'} ${esc(d.title)}" ${demoBusy && !installed ? 'disabled' : ''}>${svgIcon(installed ? "play" : "download")} ${action}</button><a class="demo-zip-link" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" aria-label="Download ${esc(d.title)} ZIP">ZIP ${svgIcon("download")}</a></div></div>
+      </article>`;
+    }).join(""));
+  }
+  byId("demoPagination").hidden = result.pages < 2;
+  byId("demoPageLabel").textContent = "Page " + result.page + " of " + result.pages;
+  byId("demoPrevBtn").disabled = result.page <= 1;
+  byId("demoNextBtn").disabled = result.page >= result.pages;
+  if (demoCatalogState === "ready") byId("demoStatus").textContent = result.total ? result.first + "–" + result.last + " of " + result.total + " demos" : "0 demos";
+}
+function filterDemos() { demoPage = 1; renderDemos(); }
+function resetDemoFilters() {
+  byId("demoSearch").value = ""; byId("demoRegion").value = ""; byId("demoSort").value = "title";
+  demoInstalledOnly = false; filterDemos();
+}
+function changeDemoPage(delta) {
+  demoPage += delta; renderDemos();
+  const first = byId("demoGrid").querySelector("button:not(:disabled), a");
+  first?.focus({ preventScroll: true });
+  first?.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 async function loadDemoCatalog() {
   const button = byId("demoLoadBtn");
   if (!button || button.disabled) return;
-  button.disabled = true;
-  byId("demoStatus").textContent = "Loading PlayDreamCreate catalog…";
+  button.disabled = true; demoCatalogState = "loading";
+  byId("demoStatus").textContent = "Connecting to PlayDreamCreate…";
+  renderDemos();
   try {
     let response;
     try {
@@ -1558,61 +1617,148 @@ async function loadDemoCatalog() {
     if (!response.ok) throw new Error("Catalog HTTP " + response.status);
     demoCatalog = window.PPSSPPDemos.catalog(await response.json());
     demoInstalled = new Set((await opfsWalk(OPFS_GAMES_DIR, "", false)).map(g => g.path));
+    demoCatalogState = "ready";
+    button.innerHTML = svgIcon("refresh") + "<span>Refresh catalog</span>";
+    button.setAttribute("aria-label", "Refresh demo catalog");
+    button.title = "Refresh demo catalog";
     renderDemos();
-    button.textContent = "Refresh demos";
   } catch (e) {
-    byId("demoStatus").textContent = "Could not load demos: " + e.message + ". Retry with Browse demos.";
+    demoCatalogState = demoCatalog.length ? "ready" : "error";
+    renderDemos();
+    byId("demoStatus").textContent = "Catalog unavailable. " + (demoCatalog.length ? "Showing the previous catalog. " : "") + "Please retry.";
+    button.innerHTML = svgIcon("refresh") + "<span>Retry catalog</span>";
+    button.setAttribute("aria-label", "Retry demo catalog");
+    button.title = "Retry demo catalog";
   } finally { button.disabled = false; }
+}
+function demoTimeLabel(seconds) {
+  if (seconds < 60) return seconds + "s";
+  return Math.floor(seconds / 60) + "m " + (seconds % 60) + "s";
+}
+function updateDemoTransfer(patch = {}, announce = false) {
+  if (!demoTransfer) return;
+  if (patch.phase && ["download", "extract", "install"].includes(patch.phase)) demoTransfer.activePhase = patch.phase;
+  Object.assign(demoTransfer, patch);
+  const previousFocus = document.activeElement;
+  const t = demoTransfer, terminal = ["ready", "error", "cancelled"].includes(t.phase);
+  const labels = { download: "Downloading", extract: "Extracting & checking", install: "Installing", ready: "Ready to play", error: "Installation interrupted", cancelled: "Download cancelled" };
+  const label = labels[t.phase];
+  const panel = byId("demoTransfer"), progress = byId("demoProgress");
+  panel.hidden = false; panel.dataset.state = t.phase;
+  byId("demoTransferTitle").textContent = t.title;
+  byId("demoTransferPhase").textContent = label;
+  byId("demoTransferIcon").innerHTML = terminal ? (t.phase === "ready" ? "✓" : t.phase === "error" ? "!" : "−") : svgIcon(t.phase === "download" ? "download" : "preload");
+  byId("demoTransferPercent").textContent = t.percent == null ? "" : t.percent + "%";
+  progress.hidden = t.phase === "error" || t.phase === "cancelled";
+  if (t.percent == null) progress.removeAttribute("value"); else progress.value = t.percent;
+  progress.setAttribute("aria-label", label + ": " + t.title);
+  progress.setAttribute("aria-valuetext", t.percent == null ? label : label + " " + t.percent + "%");
+  byId("demoTransferDetail").textContent = t.detail || "";
+  byId("demoTransferHint").textContent = t.hint || (terminal ? "" : "Keep browsing while we prepare your demo. One installation at a time.");
+  const steps = ["download", "extract", "install"], current = steps.indexOf(terminal ? t.activePhase : t.phase);
+  panel.querySelectorAll("[data-demo-step]").forEach(el => {
+    const index = steps.indexOf(el.dataset.demoStep);
+    el.dataset.state = t.phase === "ready" || index < current ? "done" : index === current ? (t.phase === "error" ? "error" : "active") : "pending";
+    if (index === current && !terminal) el.setAttribute("aria-current", "step"); else el.removeAttribute("aria-current");
+  });
+  byId("demoBrowseBtn").hidden = terminal;
+  byId("demoCancelBtn").hidden = t.phase !== "download";
+  byId("demoCancelBtn").disabled = !!t.cancelling;
+  byId("demoCancelBtn").textContent = t.cancelling ? "Cancelling…" : "Cancel";
+  byId("demoRetryBtn").hidden = t.phase !== "error" && t.phase !== "cancelled";
+  byId("demoOpenBtn").hidden = t.phase !== "ready";
+  byId("demoDismissBtn").hidden = !terminal;
+  byId("demoTransferZip").hidden = t.phase !== "error" || !t.url;
+  if (t.url) byId("demoTransferZip").href = t.url;
+  const badge = byId("demoActivityBtn");
+  badge.hidden = false; badge.dataset.state = t.phase;
+  byId("demoActivityText").textContent = t.phase === "ready" ? "Demo ready" : t.phase === "error" ? "Retry install" : t.phase === "cancelled" ? "Cancelled" : label + (t.percent == null ? "…" : " · " + t.percent + "%");
+  badge.setAttribute("aria-label", label + ": " + t.title + ". Show installation details.");
+  if ((panel.contains(previousFocus) && previousFocus.hidden) || (terminal && t.focusAfterCancel && previousFocus === document.body)) {
+    (terminal ? (t.phase === "ready" ? byId("demoOpenBtn") : byId("demoRetryBtn")) : byId("demoBrowseBtn")).focus({ preventScroll: true });
+  }
+  if (announce) byId("demoAnnouncement").textContent = t.title + ": " + label + ". " + (t.detail || "");
+}
+function revealDemoTransfer() {
+  activatePanelTab("library"); setPanelOpen(true);
+  const target = demoTransfer ? byId("demoTransfer") : byId("demoSection");
+  target.scrollIntoView({ block: "start", behavior: "instant" });
+  const action = !demoTransfer ? byId("demoLoadBtn") : demoTransfer.phase === "ready" ? byId("demoOpenBtn") : ["error", "cancelled"].includes(demoTransfer.phase) ? byId("demoRetryBtn") : byId("demoBrowseBtn");
+  action?.focus({ preventScroll: true });
+}
+function dismissDemoTransfer() {
+  if (demoBusy) return;
+  const restore = byId("demoTransfer").contains(document.activeElement) || document.activeElement === byId("demoActivityBtn");
+  byId("demoTransfer").hidden = true; byId("demoActivityBtn").hidden = true;
+  demoTransfer = null;
+  if (restore) byId("demoLoadBtn").focus({ preventScroll: true });
 }
 async function downloadDemo(url) {
   const demo = demoCatalog.find(d => d.url === url);
   if (!demo) return;
   if (demoInstalled.has(demo.name)) { await showGameInfo(demo.name); return; }
   if (demoBusy) return;
-  demoBusy = true;
-  demoAbort = new AbortController();
-  const progress = byId("demoProgress"), cancel = byId("demoCancelBtn"), status = byId("demoStatus");
-  progress.hidden = cancel.hidden = false;
-  progress.removeAttribute("value");
+  demoBusy = true; demoAbort = new AbortController();
+  demoTransfer = { title: demo.title, url, name: demo.name, phase: "download", activePhase: "download", percent: null };
   byId("demoFallback").hidden = true;
-  status.textContent = "Downloading " + demo.title + "…";
+  updateDemoTransfer({ detail: "Connecting to the demo archive…" }, true);
   renderDemos();
+  revealDemoTransfer();
   try {
     const archive = new URL(url).pathname.split("/").pop();
     const response = await fetch("api/demos/download?file=" + encodeURIComponent(archive), { signal: demoAbort.signal });
-    if (!response.ok || !response.headers.get("content-type")?.includes("application/zip")) throw new Error("Download gateway unavailable (HTTP " + response.status + ")");
-    const total = Number(response.headers.get("content-length")) || demo.fileSizeBytes;
-    const reader = response.body.getReader(), chunks = []; let received = 0;
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/zip")) throw new Error("The download service is unavailable right now.");
+    const total = Number(response.headers.get("content-length")) || 0;
+    const reader = response.body.getReader(), chunks = []; let received = 0, lastUpdate = 0, announced = -1;
+    const started = performance.now();
     while (true) {
       const part = await reader.read();
       if (part.done) break;
       received += part.value.length;
       if (received > 512 * 1024 * 1024) { await reader.cancel(); throw new Error("Archive exceeds 512 MB"); }
       chunks.push(part.value);
-      if (total) { progress.max = total; progress.value = received; }
-      status.textContent = "Downloading " + demo.title + " · " + formatBytes(received) + (total ? " / " + formatBytes(total) : "");
+      const now = performance.now();
+      if (now - lastUpdate >= 150 || received === total) {
+        const metrics = window.PPSSPPDemos.transferMetrics(received, total, started, now);
+        const bucket = metrics.percent == null ? 0 : Math.floor(metrics.percent / 25);
+        const detail = formatBytes(received) + (total ? " / " + formatBytes(total) : " downloaded") + (metrics.speed ? " · " + formatBytes(metrics.speed) + "/s" : "") + (metrics.remaining ? " · About " + demoTimeLabel(metrics.remaining) + " left" : "");
+        updateDemoTransfer({ percent: metrics.percent, detail }, bucket !== announced);
+        announced = bucket; lastUpdate = now;
+      }
     }
     demoAbort.signal.throwIfAborted();
-    status.textContent = "Extracting and installing " + demo.title + "…";
-    cancel.hidden = true;
-    progress.removeAttribute("value");
-    const names = await installGameArchive(new File(chunks, archive), demo.name);
+    if (total && received !== total) throw new Error("The download ended early. Please try again.");
+    updateDemoTransfer({ phase: "extract", percent: null, detail: "Opening archive and checking its files…", hint: "The download is complete. Keep this tab open while the demo is installed." }, true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    let lastPaint = 0, phase = "extract";
+    const names = await installGameArchive(new File(chunks, archive), demo.name, async event => {
+      const changed = event.phase !== phase;
+      const now = performance.now();
+      if (!changed && now - lastPaint < 80 && event.completed !== event.total) return;
+      const percent = event.total ? Math.min(100, Math.floor(event.completed / event.total * 100)) : null;
+      updateDemoTransfer({ phase: event.phase, percent, detail: event.phase === "extract"
+        ? "Unpacking & verifying · " + formatBytes(event.completed) + " / " + formatBytes(event.total)
+        : "Saving to your library · " + formatBytes(event.completed) + " / " + formatBytes(event.total),
+        hint: "Keep this tab open. Your game files are being prepared for PPSSPP." }, changed);
+      phase = event.phase; lastPaint = now;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    updateDemoTransfer({ phase: "install", percent: 100, detail: "Finishing library update…" });
     demoInstalled = new Set((await opfsWalk(OPFS_GAMES_DIR, "", false)).map(g => g.path));
-    await refreshLibrary();
-    await updateStorageInfo();
-    status.textContent = demo.title + " installed. Select Open installed demo to play.";
-    showToast("✓ Installed " + demo.title);
-    // A source product code may differ from the folder in its ZIP.
+    await refreshLibrary(); await updateStorageInfo();
     if (names.length === 1) demo.name = names[0];
+    updateDemoTransfer({ phase: "ready", percent: 100, name: names[0], detail: "Installed and added to your library.", hint: "Open the demo to view its artwork and launch it in PPSSPP." }, true);
+    showToast("✓ " + demo.title + " is ready to play", 4500);
   } catch (e) {
-    status.textContent = e.name === "AbortError" ? "Download cancelled." : "Demo installation failed: " + e.message;
-    byId("demoFallback").hidden = e.name === "AbortError";
+    const cancelled = e.name === "AbortError";
+    updateDemoTransfer({ phase: cancelled ? "cancelled" : "error", percent: null, detail: cancelled ? "No game was installed. You can start the download again anytime." : e.message,
+      hint: cancelled ? "Your library is unchanged." : "Choose Try again, or import the ZIP using Add game." }, true);
+    byId("demoFallback").hidden = cancelled;
   } finally {
-    const message = status.textContent;
     demoBusy = false; demoAbort = null;
-    progress.hidden = cancel.hidden = true;
+    const focused = byId("demoTransfer").contains(document.activeElement);
     renderDemos();
-    status.textContent = message;
+    if (focused && document.activeElement.hidden) (demoTransfer.phase === "ready" ? byId("demoOpenBtn") : byId("demoRetryBtn")).focus({ preventScroll: true });
   }
 }
 
@@ -5102,9 +5248,20 @@ on(startBtn, "click", () => {
 });
 
 on("demoLoadBtn", "click", loadDemoCatalog);
-on("demoSearch", "input", renderDemos);
-on("demoRegion", "change", renderDemos);
-on("demoCancelBtn", "click", () => demoAbort?.abort());
+on("demoSearch", "input", filterDemos);
+on("demoRegion", "change", filterDemos);
+on("demoSort", "change", filterDemos);
+on("demoAllBtn", "click", () => { demoInstalledOnly = false; filterDemos(); });
+on("demoInstalledBtn", "click", () => { demoInstalledOnly = true; filterDemos(); });
+on("demoResetBtn", "click", resetDemoFilters);
+on("demoPrevBtn", "click", () => changeDemoPage(-1));
+on("demoNextBtn", "click", () => changeDemoPage(1));
+on("demoActivityBtn", "click", revealDemoTransfer);
+on("demoBrowseBtn", "click", () => { byId("demoSearch").focus({ preventScroll: true }); byId("demoSearch").scrollIntoView({ block: "center", behavior: "instant" }); });
+on("demoDismissBtn", "click", dismissDemoTransfer);
+on("demoRetryBtn", "click", () => { if (demoTransfer) downloadDemo(demoTransfer.url); });
+on("demoOpenBtn", "click", () => { if (demoTransfer?.name) showGameInfo(demoTransfer.name); });
+on("demoCancelBtn", "click", () => { if (demoAbort) { const focusAfterCancel = document.activeElement === byId("demoCancelBtn"); updateDemoTransfer({ cancelling: true, focusAfterCancel, detail: "Stopping the download…" }, true); demoAbort.abort(); } });
 on("demoGrid", "click", event => { const button = event.target.closest("button[data-demo]"); if (button) downloadDemo(button.dataset.demo); });
 on("refreshLibraryBtn", "click", refreshLibrary);
 on("libraryGrid", "click", e => {

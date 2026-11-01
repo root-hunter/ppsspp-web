@@ -96,7 +96,7 @@
   }
   function controls(includeDisabled = false) {
     const container = root();
-    const headerControls = container === byId('sidePanel') && !document.fullscreenElement && !document.webkitFullscreenElement ? [byId('fullscreenBtn')] : [];
+    const headerControls = container === byId('sidePanel') && !document.fullscreenElement && !document.webkitFullscreenElement ? [byId('demoActivityBtn'), byId('fullscreenBtn')].filter(Boolean) : [];
     const toolbarControls = container === byId('fsMenuActions') ? [byId('fsExitBtn')] : [];
     return [...headerControls, ...container.querySelectorAll(controlsSelector), ...toolbarControls].filter(el => visible(el) && (includeDisabled || !el.disabled));
   }

@@ -6,6 +6,7 @@
     </span>
 
     <div class="hbar-end">
+      <button id="demoActivityBtn" type="button" class="demo-activity" aria-controls="demoTransfer" hidden><i data-lucide="download"></i><span id="demoActivityText">Downloads</span></button>
       <span id="gamepadBadge" class="badge" title="Gamepad"><i data-lucide="gamepad-2"></i> No controller</span>
       <span id="gpuBadge"     class="badge" title="GPU"><i data-lucide="monitor"></i> Detecting&hellip;</span>
       <span id="driveBadge"   class="badge drive-badge" title="Google Drive — click to go to Drive tab" role="button" tabindex="0" style="display:none">
@@ -108,17 +109,29 @@
           <div id="libraryEmpty" class="collection-empty" role="status">No games. Add a PSP game or ZIP, or browse the demos below.</div>
           <div id="libraryGrid" class="collection-grid" aria-label="Games" style="display:none"></div>
           <div id="librarySelection" class="collection-selection" aria-live="polite"></div>
-          <section class="demo-section" aria-labelledby="demoHeading">
-            <div class="collection-heading"><div><h2 id="demoHeading">Discover PSP demos</h2><p>Download, install and play demos from <a href="https://playdreamcreate.com/" target="_blank" rel="noopener noreferrer">PlayDreamCreate</a>.</p></div><button id="demoLoadBtn" type="button"><i data-lucide="refresh-cw"></i> Browse demos</button></div>
-            <div class="collection-toolbar">
-              <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search demos</span><input id="demoSearch" type="search" placeholder="Search title or product code" autocomplete="off"></label>
-              <label class="sort-field"><span class="sr-only">Demo region</span><select id="demoRegion"><option value="">All regions</option><option value="EU">Europe</option><option value="US">USA</option><option value="JP">Japan</option><option value="KR">Korea</option></select></label>
+          <section id="demoSection" class="demo-section" aria-labelledby="demoHeading">
+            <div class="demo-heading">
+              <div class="demo-heading-copy"><span class="demo-eyebrow">PLAY SOMETHING NEW</span><h2 id="demoHeading">Discover PSP demos<span class="demo-heading-dot" aria-hidden="true">.</span></h2><p>A little nostalgia. Your next discovery. Install a demo and make it part of your library.</p></div>
+              <button id="demoLoadBtn" type="button" class="demo-refresh" aria-label="Browse demo catalog" title="Browse demo catalog"><i data-lucide="refresh-cw"></i><span>Browse demos</span></button>
             </div>
-            <p id="demoStatus" class="field-help" role="status" aria-live="polite">Choose Browse demos to load the catalog. ZIP files are extracted automatically when installed or imported with Add game.</p>
-            <progress id="demoProgress" hidden aria-label="Demo download progress"></progress>
-            <button id="demoCancelBtn" type="button" hidden>Cancel download</button>
+            <div id="demoTransfer" class="demo-transfer" aria-labelledby="demoTransferTitle" hidden>
+              <div class="demo-transfer-top"><span id="demoTransferIcon" class="demo-transfer-icon" aria-hidden="true"></span><div class="demo-transfer-copy"><span id="demoTransferPhase" class="demo-eyebrow">DOWNLOAD</span><h3 id="demoTransferTitle"></h3></div><span id="demoTransferPercent" class="demo-percent"></span><button id="demoDismissBtn" type="button" class="icon-btn" aria-label="Dismiss installation notification" hidden><i data-lucide="x"></i></button></div>
+              <ol class="demo-steps" aria-label="Installation stages"><li data-demo-step="download">Download</li><li data-demo-step="extract">Extract</li><li data-demo-step="install">Install</li></ol>
+              <progress id="demoProgress" max="100" aria-label="Current installation stage progress"></progress>
+              <div class="demo-transfer-bottom"><div><p id="demoTransferDetail"></p><p id="demoTransferHint" class="demo-transfer-hint"></p></div><div class="demo-transfer-actions"><button id="demoBrowseBtn" type="button">Keep browsing</button><button id="demoCancelBtn" type="button">Cancel</button><button id="demoRetryBtn" type="button" hidden>Try again</button><button id="demoOpenBtn" type="button" class="primary" hidden><i data-lucide="play"></i> Open demo</button><a id="demoTransferZip" class="btn" target="_blank" rel="noopener noreferrer" hidden>Download ZIP</a></div></div>
+            </div>
+            <div class="demo-browser-toolbar">
+              <div class="demo-views" role="group" aria-label="Demo collection"><button id="demoAllBtn" type="button" aria-pressed="true">All demos <span id="demoTotalCount">—</span></button><button id="demoInstalledBtn" type="button" aria-pressed="false">Installed <span id="demoInstalledCount">0</span></button></div>
+              <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search demos</span><input id="demoSearch" type="search" placeholder="Find your next demo…" autocomplete="off"></label>
+              <label class="demo-select"><span>Region</span><select id="demoRegion"><option value="">All regions</option><option value="EU">Europe</option><option value="US">USA</option><option value="JP">Japan</option><option value="KR">Korea</option></select></label>
+              <label class="demo-select"><span>Sort by</span><select id="demoSort"><option value="title">Title A–Z</option><option value="title-desc">Title Z–A</option><option value="size">Smallest first</option></select></label>
+            </div>
+            <div class="demo-results-heading"><p id="demoStatus" role="status" aria-live="polite">Your next game is a demo away.</p><button id="demoResetBtn" type="button" class="demo-text-button" hidden>Clear filters</button></div>
+            <div id="demoEmpty" class="demo-empty"><i data-lucide="gamepad-2"></i><h3 id="demoEmptyTitle">A whole catalog to explore</h3><p id="demoEmptyDetail">Browse free PSP demos from PlayDreamCreate. Download, install, and open them right here.</p></div>
             <div id="demoGrid" class="demo-grid" aria-label="PSP demos"></div>
-            <p id="demoFallback" class="field-help" hidden>Direct installation requires the PPSSPP Web server. You can also download a ZIP from the archive and import it with Add game.</p>
+            <nav id="demoPagination" class="demo-pagination" aria-label="Demo catalog pages" hidden><button id="demoPrevBtn" type="button" aria-controls="demoGrid">← Previous</button><span id="demoPageLabel"></span><button id="demoNextBtn" type="button" aria-controls="demoGrid">Next →</button></nav>
+            <p class="demo-source">Catalog by <a href="https://playdreamcreate.com/" target="_blank" rel="noopener noreferrer">PlayDreamCreate <i data-lucide="external-link"></i></a><span>ZIP files are installed automatically.</span></p>
+            <p id="demoFallback" class="field-help" hidden>Direct installation requires the PPSSPP Web server. You can also download a ZIP and import it with Add game.</p>
           </section>
         </div>
       </div>
@@ -405,6 +418,7 @@
     </section>
 
   <div id="toast" role="status"></div>
+  <div id="demoAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="saveInfoModal" class="collection-modal" aria-hidden="true">
     <div class="save-info-dialog" role="dialog" aria-modal="true" aria-labelledby="saveInfoTitle">
       <div class="save-dialog-heading"><div id="saveInfoIcon"></div><div><h2 id="saveInfoTitle"></h2><p id="saveInfoSummary"></p></div><button id="saveInfoCloseBtn" type="button" aria-label="Close saves"><i data-lucide="x"></i></button></div>
