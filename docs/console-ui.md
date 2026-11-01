@@ -73,13 +73,23 @@ without reloading the page. Multiplayer changes are applied by Save settings.
 | Open dashboard | Hold PS / Guide for 650 ms | — |
 | Open / close dashboard | L3 + R3 together | F1 |
 | Fullscreen | Y / Triangle in a menu | F10 |
-| Change a focused selector | Left / right; select advances | Native select keys |
+| Edit a dropdown | Select opens options; D-pad moves; Select applies; Back cancels | Native select keys |
 | Enter text | Select a field to open the on-screen keyboard | Type normally |
+
+Directions always move between dashboard controls, including dropdowns. Select
+opens a controller-friendly options dialog at the current value, without changing
+it; Back cancels. Applying a different option emits the native input/change events
+and restores focus to the dropdown. Native mouse and keyboard select behavior is
+preserved. Temporarily disabled action buttons retain their focus anchor while
+busy. Re-enabling restores focus only if the user has not moved elsewhere; navigation
+can leave a busy button immediately. Replaced controls recover by ID or by the
+nearest available control in the same section, rather than jumping to Fullscreen.
 
 The on-screen keyboard supports letters, digits, URL punctuation, Shift, Space,
 Delete, Clear, Cancel and Done. Passwords remain masked. Native text editing,
 mouse and touch remain available. Details, checkboxes, file labels, collection tiles and dialogs participate in
-focus navigation. Back collapses open slot/options details before closing the
+focus navigation. Closed options expose only their summary until expanded.
+Back collapses open slot/options details before closing the
 containing dialog.
 
 ## Controllers and compatibility
@@ -123,7 +133,8 @@ need device testing; simulated input cannot establish hardware compatibility.
 ## Validation
 
 `npm test` in `wasm-page` includes navigation regression tests for standard and
-custom mappings, stick drift/hysteresis, button edge/repeat behavior, neutral
+custom mappings, dropdown apply/cancel, focus during asynchronous actions,
+closed-panel exclusion, stick drift/hysteresis, button edge/repeat behavior, neutral
 release checks and spatial focus movement, alongside the runtime and transport
 suites. Metadata tests cover SFO bounds checks, bounded PBP icon reads, save
 grouping, state/preview pairing and exporting current live bytes. Session tests

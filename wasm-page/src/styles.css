@@ -243,6 +243,11 @@ body.drive-connected .drive-sync-btn { display: inline-flex !important; }
 .console-keyboard { display: grid; grid-template-columns: repeat(10, minmax(0,1fr)); gap: 6px; margin-block: 18px; }
 .console-keyboard button { min-width: 0; padding: 8px 0; }
 .console-keyboard-value { display: block; min-height: 52px; padding: 12px; border: 1px solid var(--border2); border-radius: 6px; overflow-wrap: anywhere; white-space: pre-wrap; }
+body.console-controller [data-console-focus-pending] { outline: 2px solid var(--accent2); outline-offset: 4px; }
+.console-select-options { display: grid; gap: 8px; margin-block: 18px; }
+.console-select-options button { justify-content: flex-start; text-align: left; }
+.console-select-options button[aria-pressed="true"] { border-color: var(--accent); background: #b0dcd619; }
+.console-select-options button[aria-pressed="true"]::after { content: '✓'; margin-left: auto; color: var(--accent); }
 .console-dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 #toast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); padding: 12px 20px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; z-index: 600; color: var(--text); opacity: 0; pointer-events: none; font-size: 13px; text-align: center; }
 #toast.visible { opacity: 1; }

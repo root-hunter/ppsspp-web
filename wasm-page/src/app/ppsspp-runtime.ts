@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-session-cards-v1';
+const RUNTIME_ASSET_VERSION = '2026-11-01-controller-focus-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

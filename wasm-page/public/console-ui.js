@@ -84,13 +84,61 @@
     if (body.classList.contains('panel-open')) return byId('sidePanel');
     return byId(fullscreenMenuOpen() ? 'fsMenuActions' : recoveryOpen() ? 'runtimeRecovery' : 'sidePanel');
   }
-  function controls() {
+  function visible(el) {
+    if (!el?.isConnected || el.closest('[inert], [hidden], .disabled') || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return false;
+    // Closed details can still report rectangles for their unrendered contents.
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName !== 'DETAILS' || parent.open) continue;
+      const summary = [...parent.children].find(child => child.tagName === 'SUMMARY');
+      if (!summary?.contains(el)) return false;
+    }
+    return true;
+  }
+  function controls(includeDisabled = false) {
     const container = root();
     const headerControls = container === byId('sidePanel') && !document.fullscreenElement && !document.webkitFullscreenElement ? [byId('fullscreenBtn')] : [];
     const toolbarControls = container === byId('fsMenuActions') ? [byId('fsExitBtn')] : [];
-    return [...headerControls, ...container.querySelectorAll(controlsSelector), ...toolbarControls].filter(el => el && !el.disabled && !el.closest('[inert], [hidden], .disabled') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    return [...headerControls, ...container.querySelectorAll(controlsSelector), ...toolbarControls].filter(el => visible(el) && (includeDisabled || !el.disabled));
   }
-  function focus(el) { el?.focus({ preventScroll: true }); el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); }
+  const focusMemory = new WeakMap();
+  function rememberFocus(el) {
+    if (!uiOpen() || !controls().includes(el)) return;
+    focusMemory.get(root())?.element.removeAttribute('data-console-focus-pending');
+    focusMemory.set(root(), { element: el, id: el.id, rect: el.getBoundingClientRect(), region: el.closest('.tab-panel, .tabs, .session-dock') });
+  }
+  function focus(el) {
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    rememberFocus(document.activeElement);
+  }
+  document.addEventListener('focusin', event => rememberFocus(event.target));
+  function recoverFocus() {
+    const list = controls(), container = root();
+    if (list.includes(document.activeElement)) {
+      focusMemory.get(container)?.element.removeAttribute('data-console-focus-pending');
+      return document.activeElement;
+    }
+    const saved = focusMemory.get(container);
+    // A busy control still owns focus. Restore it when enabled, unless the user moves away.
+    if (visible(saved?.element) && saved.element.disabled) {
+      saved.element.setAttribute('data-console-focus-pending', 'true');
+      return saved.element;
+    }
+    saved?.element.removeAttribute('data-console-focus-pending');
+    let target = list.find(el => el === saved?.element || (saved?.id && el.id === saved.id));
+    const neighbors = saved?.region && visible(saved.region) ? list.filter(el => saved.region.contains(el)) : [];
+    if (!target && neighbors.length) {
+      const center = r => [r.left + r.width / 2, r.top + r.height / 2];
+      const [x, y] = center(saved.rect);
+      target = neighbors.reduce((best, el) => {
+        const distance = node => { const [cx, cy] = center(node.getBoundingClientRect()); return Math.hypot(cx - x, cy - y); };
+        return !best || distance(el) < distance(best) ? el : best;
+      }, null);
+    }
+    target ||= container === byId('sidePanel') ? list.find(el => el.matches('.tab.active')) || list.find(el => container.contains(el)) : list[0];
+    focus(target);
+    return target;
+  }
   function prepareLabels() {
     document.querySelectorAll('label').forEach(el => {
       if (!el.matches('.btn') && !el.querySelector('input[type="file"]')) return;
@@ -100,21 +148,13 @@
   prepareLabels();
   const observer = new MutationObserver(() => {
     prepareLabels();
-    if (uiOpen() && !controls().includes(document.activeElement)) focus(controls()[0]);
+    if (uiOpen()) recoverFocus();
   });
-  observer.observe(byId('sidePanel'), { childList: true, subtree: true });
-  for (const id of ['gameInfoModal', 'saveInfoModal']) observer.observe(byId(id), { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
-  function stepSelect(el, sign) {
-    const options = [...el.options].filter(option => !option.disabled);
-    const index = options.indexOf(el.selectedOptions[0]);
-    const next = options[(index + sign + options.length) % options.length];
-    if (!next) return;
-    el.value = next.value; el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
+  observer.observe(byId('sidePanel'), { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'class', 'open'] });
+  for (const id of ['gameInfoModal', 'saveInfoModal']) observer.observe(byId(id), { attributes: true, attributeFilter: ['disabled', 'hidden', 'class', 'open'], childList: true, subtree: true });
   function navigate(direction) {
-    const list = controls(), current = document.activeElement;
-    if (!list.includes(current)) { focus(list[0]); return; }
-    if (current.tagName === 'SELECT' && ['left', 'right'].includes(direction)) { stepSelect(current, direction === 'left' ? -1 : 1); return; }
+    const list = controls(), current = list.includes(document.activeElement) ? document.activeElement : recoverFocus();
+    if (!current) return;
     const target = spatialTarget(current.getBoundingClientRect(), list.filter(el => el !== current).map(element => ({ element, rect: element.getBoundingClientRect() })), direction);
     if (target) focus(target);
   }
@@ -172,10 +212,34 @@
     button(actions, 'Done', () => closeDialog(true)).className = 'primary';
     focus(grid.firstElementChild);
   }
+  function selectOptions(target) {
+    const label = target.labels?.[0]?.cloneNode(true);
+    label?.querySelectorAll('select, input, textarea').forEach(el => el.remove());
+    const card = createDialog(target.getAttribute('aria-label') || label?.textContent.trim() || 'Choose an option');
+    const help = document.createElement('p'); help.textContent = 'Choose with the D-pad or stick. Select to apply, Back to cancel.'; card.append(help);
+    const options = document.createElement('div'); options.className = 'console-select-options'; card.append(options);
+    let selected = null;
+    for (const option of target.options) {
+      if (option.hidden || option.disabled || option.closest('optgroup')?.disabled || option.closest('optgroup')?.hidden) continue;
+      const choice = button(options, option.label, () => {
+        const changed = target.selectedIndex !== option.index;
+        target.selectedIndex = option.index;
+        closeDialog();
+        if (changed) {
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      choice.setAttribute('aria-pressed', String(option.selected));
+      if (option.selected) selected = choice;
+    }
+    const cancel = button(card, 'Cancel', () => closeDialog());
+    focus(selected || options.firstElementChild || cancel);
+  }
   function activate() {
     const el = document.activeElement;
-    if (!controls().includes(el)) { focus(controls()[0]); return; }
-    if (el.tagName === 'SELECT') { stepSelect(el, 1); return; }
+    if (!controls().includes(el)) { recoverFocus(); return; }
+    if (el.tagName === 'SELECT') { selectOptions(el); return; }
     if (el.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"])')) {
       if (!el.readOnly) keyboard(el); return;
     }
@@ -280,8 +344,13 @@
     else if (event.key === 'Escape') { event.preventDefault(); back(); }
     else if ((event.key === 'Enter' || event.key === ' ') && el?.matches('label[tabindex="0"]')) { event.preventDefault(); el.control?.click(); }
     else if (event.key === 'Tab') {
-      const list = controls(); const index = list.indexOf(el);
-      event.preventDefault(); focus(list[(index + (event.shiftKey ? -1 : 1) + list.length) % list.length]);
+      const list = controls(true); const anchor = list.includes(el) ? el : recoverFocus();
+      const index = list.indexOf(anchor), sign = event.shiftKey ? -1 : 1;
+      event.preventDefault();
+      for (let offset = 1; offset <= list.length; offset++) {
+        const next = list[(index + sign * offset + list.length) % list.length];
+        if (!next.disabled) { focus(next); break; }
+      }
     }
     if (event.defaultPrevented) event.stopImmediatePropagation();
   }, true);
