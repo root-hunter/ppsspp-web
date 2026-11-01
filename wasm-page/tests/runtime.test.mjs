@@ -191,6 +191,7 @@ test('malformed ISO extents cannot request an unbounded allocation', async () =>
 test('startup mounts explicitly selected favorites of any size, skipping the game already launched', async () => {
   const loaded = [], written = [];
   const ctx = load(['preloadStoredGames'], {
+    mountStoredGamePackage: async () => null,
     OPFS_GAMES_DIR: 'games', VIRTUAL_GAME_DIR: '/games', selectedStoredGame: 'playing.iso', selectedGame: null,
     opfsWalk: async () => [
       { path: 'large.iso', size: 1800 * 1024 ** 2 }, { path: 'small.iso', size: 40 },
@@ -208,6 +209,7 @@ test('startup mounts explicitly selected favorites of any size, skipping the gam
 test('a failed automount does not prevent other selected games from mounting', async () => {
   const written = [];
   const ctx = load(['preloadStoredGames'], {
+    mountStoredGamePackage: async () => null,
     OPFS_GAMES_DIR: 'games', VIRTUAL_GAME_DIR: '/games', selectedStoredGame: null, selectedGame: null,
     opfsWalk: async () => [{ path: 'bad.iso' }, { path: 'good.iso' }],
     prunePreloadFavorites: names => names,
@@ -748,4 +750,35 @@ test('native menu waits for session resume, sends one Escape pulse and cancels o
   vm.runInContext('menuSuspended = true', ctx); ctx.openNativeMenu(); classes.add('panel-open'); flush();
   assert.equal(keys.length, 2);
   vm.runInContext('runtimeReady = false', ctx); ctx.openNativeMenu(); assert.equal(notified, 1);
+});
+
+test('archive install publishes EBOOT after companions and mount restores relative paths', async () => {
+  const stored = new Map(), meta = new Map(), writes = new Map();
+  const api = { unzip: async () => [], packages: () => [{ name: 'UCES00302.pbp', boot: true, data: new Uint8Array([9]), files: [{ name: 'data/test.bin', data: new Uint8Array([1, 2]) }] }], safePath: name => name };
+  const ctx = load(['installGameArchive', 'mountStoredGamePackage'], {
+    window: { PPSSPPDemos: api }, VIRTUAL_GAME_DIR: '/games',
+    opfsMetaPut: async (name, data) => meta.set(name, data),
+    opfsMetaRead: async name => { if (!meta.has(name)) throw new Error('Not found'); return meta.get(name); },
+    opfsPutGame: async (name, data) => { assert(meta.has(name + '.package.json')); stored.set(name, data); },
+    opfsReadGame: async name => stored.get(name),
+  });
+  const names = await ctx.installGameArchive({ name: 'demo.zip', arrayBuffer: async () => new ArrayBuffer(0) });
+  assert.equal(names[0], 'UCES00302.pbp');
+  assert.equal(new TextDecoder().decode(meta.get('UCES00302.pbp.package.json')), '["data/test.bin"]');
+  const fs = { mkdirTree() {}, writeFile: (name, data) => writes.set(name, data) };
+  assert.equal(await ctx.mountStoredGamePackage(fs, names[0]), '/games/UCES00302.package/EBOOT.PBP');
+  assert.deepEqual([...writes.get('/games/UCES00302.package/data/test.bin')], [1, 2]);
+  assert.deepEqual([...writes.get('/games/UCES00302.package/EBOOT.PBP')], [9]);
+  assert.equal(await ctx.mountStoredGamePackage(fs, 'plain.iso'), null);
+});
+
+test('ISO ZIP imports remain plain games without a PBP package manifest', async () => {
+  const writes = [];
+  const ctx = load(['installGameArchive'], {
+    window: { PPSSPPDemos: { unzip: async () => [], packages: () => [{name: 'game.iso', data: new Uint8Array([1]), files: []}] } },
+    opfsMetaPut: async () => assert.fail('ISO must not be mounted as EBOOT.PBP'),
+    opfsPutGame: async name => writes.push(name),
+  });
+  await ctx.installGameArchive({name: 'demo.zip', arrayBuffer: async () => new ArrayBuffer(0)});
+  assert.deepEqual(writes, ['game.iso']);
 });

@@ -38,7 +38,7 @@ current tab; it is not a save state and does not survive reloading or closing it
 
 Library has one focusable tile per game. Select it to open the game details and
 Play; startup preload, Drive upload and deletion live under Game options. Add
-game imports local files. Library options contains the emulator start action,
+game imports local files, including ZIP archives. Library options contains the emulator start action,
 URL download and refresh. Search filters titles and filenames; sorting uses the
 game title or file size. Reloading a collection preserves the focused tile.
 
@@ -140,3 +140,42 @@ suites. Metadata tests cover SFO bounds checks, bounded PBP icon reads, save
 grouping, state/preview pairing and exporting current live bytes. Session tests
 cover keepalive ownership, interrupted resume transitions, multiplayer exclusion,
 paused audio, release of held keys and fullscreen fallback. `npm run build` checks the Angular template and production bundle.
+
+
+## Public demo library
+
+Games → Discover PSP demos loads the 202-entry PlayDreamCreate catalog from
+`https://playdreamcreate.com/data/demos.json`. The source currently returns the
+full catalog even with `?search=...`; title/product-code search and region filters
+run locally. Each card offers Download & install, a direct Download ZIP fallback,
+and Open installed demo after installation. Downloads show byte progress and can
+be cancelled before extraction. Installed games persist in OPFS and use the normal
+game details, embedded artwork, preload and emulator workflows.
+
+`server/serve.py` serves `GET /api/demos/catalog` and
+`GET /api/demos/download?file=<archive.zip>`. This read-only gateway is required
+for integrated downloads because `data.playdreamcreate.com` currently has no
+Access-Control-Allow-Origin header. It accepts only simple ZIP filenames on that
+fixed HTTPS origin, refuses redirects, applies timeouts/size limits and streams
+responses without keeping a second cached ZIP. Static hosting can load the catalog
+through its public CORS endpoint; download a ZIP with the card link and import it
+through Add game when the gateway is unavailable. Restart the Python server after
+updating; rebuild the Angular app for the updated UI.
+
+The shared ZIP importer is used by Add game and URL/Drive ZIP imports. It handles
+stored and deflate entries, checks CRC and sizes, rejects traversal, duplicate
+paths, symlinks, encryption and multi-volume/ZIP64 archives, and limits extraction
+to 512 MiB and 4096 entries. Deflate extraction requires browser support for
+`DecompressionStream('deflate-raw')`. Other archive formats must be extracted first.
+EBOOT.PBP packages retain relative companion files in OPFS metadata storage;
+launch and startup preload reconstruct `/games/<id>.package/EBOOT.PBP` plus its
+companions. Ordinary ISO/CSO/CHD/PBP files remain ordinary library games.
+Deleting a game also removes its package files. ZIPs themselves are not kept.
+
+Validation includes ZIP fixtures, malformed archives, catalog origin validation,
+package install/mount integration tests, and gateway tests:
+`python3 -m unittest discover -s server/tests -p test_demo_archive.py -v`.
+A Chrome end-to-end check downloaded Ape Academy 2 (UCES00302), verified its
+embedded title/artwork, reloaded to confirm persistence, and booted its EBOOT in
+the existing PPSSPP WASM core. This verifies that demo; compatibility for other
+titles still depends on the emulator and individual demo.

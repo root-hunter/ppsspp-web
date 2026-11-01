@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v20-controller-focus";
+const CACHE_VERSION = "ppsspp-angular-v21-demo-library";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -18,6 +18,7 @@ const SHELL_FILES = [
   "./manifest.webmanifest",
   "./ppsspp-runtime.js",
   "./console-ui.js",
+  "./demo-library.js",
   "./adhoc-transport.js",
 ];
 
@@ -63,6 +64,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/manifest.webmanifest") ||
                   pathname.endsWith("/ppsspp-runtime.js") ||
                   pathname.endsWith("/console-ui.js") ||
+                  pathname.endsWith("/demo-library.js") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");
 

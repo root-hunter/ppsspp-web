@@ -94,7 +94,7 @@
         <div id="libraryPanel" class="collection-panel">
           <div class="collection-heading">
             <div><h1>Games</h1><p id="libraryCount">0 games</p></div>
-            <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i> Add game<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
+            <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i> Add game<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx,.zip"></label>
           </div>
           <div class="collection-toolbar">
             <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search games</span><input id="librarySearch" type="search" placeholder="Search games" autocomplete="off"></label>
@@ -105,9 +105,21 @@
               <p id="libraryPreloadCount" class="field-help">0 preload</p>
             </div></details>
           </div>
-          <div id="libraryEmpty" class="collection-empty" role="status">No games. Add an ISO, CSO, CHD or PBP file.</div>
+          <div id="libraryEmpty" class="collection-empty" role="status">No games. Add a PSP game or ZIP, or browse the demos below.</div>
           <div id="libraryGrid" class="collection-grid" aria-label="Games" style="display:none"></div>
           <div id="librarySelection" class="collection-selection" aria-live="polite"></div>
+          <section class="demo-section" aria-labelledby="demoHeading">
+            <div class="collection-heading"><div><h2 id="demoHeading">Discover PSP demos</h2><p>Download, install and play demos from <a href="https://playdreamcreate.com/" target="_blank" rel="noopener noreferrer">PlayDreamCreate</a>.</p></div><button id="demoLoadBtn" type="button"><i data-lucide="refresh-cw"></i> Browse demos</button></div>
+            <div class="collection-toolbar">
+              <label class="search-field"><i data-lucide="search"></i><span class="sr-only">Search demos</span><input id="demoSearch" type="search" placeholder="Search title or product code" autocomplete="off"></label>
+              <label class="sort-field"><span class="sr-only">Demo region</span><select id="demoRegion"><option value="">All regions</option><option value="EU">Europe</option><option value="US">USA</option><option value="JP">Japan</option><option value="KR">Korea</option></select></label>
+            </div>
+            <p id="demoStatus" class="field-help" role="status" aria-live="polite">Choose Browse demos to load the catalog. ZIP files are extracted automatically when installed or imported with Add game.</p>
+            <progress id="demoProgress" hidden aria-label="Demo download progress"></progress>
+            <button id="demoCancelBtn" type="button" hidden>Cancel download</button>
+            <div id="demoGrid" class="demo-grid" aria-label="PSP demos"></div>
+            <p id="demoFallback" class="field-help" hidden>Direct installation requires the PPSSPP Web server. You can also download a ZIP from the archive and import it with Add game.</p>
+          </section>
         </div>
       </div>
 

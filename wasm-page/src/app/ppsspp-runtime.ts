@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-controller-focus-v1';
+const RUNTIME_ASSET_VERSION = '2026-11-01-demo-library-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -76,6 +76,7 @@ export class PpssppRuntime {
   private async start(): Promise<void> {
     createIcons({ icons: PPSSPP_ICONS });
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
+    await this.loadScript(`demo-library.js?v=${RUNTIME_ASSET_VERSION}`, 'demo-library');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
     await this.loadScript(`console-ui.js?v=${RUNTIME_ASSET_VERSION}`, 'console-ui');
     setupNetworkInvites(this.document);

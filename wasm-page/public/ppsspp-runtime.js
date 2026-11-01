@@ -352,7 +352,7 @@ const loadOverlay     = byId("loadOverlay");
 const loadLabel       = byId("loadLabel");
 [fileInput, runtimeGameInput, byId("libraryImportFile")]
   .filter(Boolean)
-  .forEach(input => { input.accept = GAME_FILE_ACCEPT; });
+  .forEach(input => { input.accept = GAME_FILE_ACCEPT + (input.id === "libraryImportFile" ? ",.zip" : ""); });
 const progressBar     = byId("progressBar");
 const fpsBadge        = byId("fpsBadge");
 const gpuBadge        = byId("gpuBadge");
@@ -772,6 +772,11 @@ async function opfsDeleteGame(name) {
   const { dir, name: fileName } = await opfsParent(name, false, OPFS_GAMES_DIR);
   await dir.removeEntry(fileName);
   await deleteGameMetadata(name);
+  const root = await opfsRoot();
+  const meta = await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
+  for (const entry of [name + ".files", name + ".package.json"]) {
+    try { await meta.removeEntry(entry, { recursive: true }); } catch (_) {}
+  }
 }
 
 // Walk Emscripten FS recursively from root, return [{path, data}]
@@ -1192,7 +1197,11 @@ async function deleteStoredFile(path) {
     if (!await confirmUI("Delete game file from OPFS:\n" + name + "?")) return;
     try {
       await opfsDeleteGame(name);
-      if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
+      if (window.FS) {
+        try { window.FS.unlink(path); } catch(e) {}
+        const packageDir = VIRTUAL_GAME_DIR + "/" + name.replace(/\.[^.]+$/, "") + ".package";
+        for (const file of fsStatDir(window.FS, packageDir).keys()) { try { window.FS.unlink(file); } catch (_) {} }
+      }
       setPreloadFavorite(name, false);
       refreshEmulatorGameBrowser("deleted " + name);
       showToast("🗑 Deleted " + name);
@@ -1243,7 +1252,7 @@ async function playOrMountStoredGame(name) {
   try {
     showToast("Mounting " + name + "…");
     FS.mkdirTree(VIRTUAL_GAME_DIR);
-    FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
+    if (!await mountStoredGamePackage(FS, name)) FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
     log("Mounted stored game file from OPFS: " + path, "ok");
     refreshEmulatorGameBrowser("mounted " + name);
     showToast("✓ " + name + " mounted");
@@ -1261,7 +1270,8 @@ async function showGameInfo(name) {
   try {
     const meta = await ensureGameMetadata(name);
     const stat = (await opfsWalk(OPFS_GAMES_DIR, "", false)).find(g => g.path === name);
-    const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + name).exists;
+    const packagePath = VIRTUAL_GAME_DIR + "/" + name.replace(/\.[^.]+$/, "") + ".package/EBOOT.PBP";
+    const mounted = !!(window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + name).exists || window.FS?.analyzePath?.(packagePath).exists);
     const preloads = isPreloadFavorite(name);
     const title = meta.title || prettyGameName(name);
     const cover = await readGameCoverURL(name, meta.coverType);
@@ -1451,6 +1461,8 @@ async function refreshLibrary() {
   if (!grid.children.length) { empty.style.display = "block"; empty.textContent = "Loading games…"; }
   try {
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
+    demoInstalled = new Set(games.map(g => g.path));
+    if (demoCatalog.length) renderDemos();
     const favorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
     const records = [];
     for (const game of games) {
@@ -1474,17 +1486,143 @@ async function refreshLibrary() {
     clearLibraryCoverURLs(); _libraryCoverURLs = urls;
     grid.style.display = records.length ? "grid" : "none";
     empty.style.display = records.length ? "none" : "block";
-    empty.textContent = "No games. Add an ISO, CSO, CHD or PBP file.";
+    empty.textContent = "No games. Add a PSP game or ZIP, or browse the demos below.";
     if (count) count.textContent = records.length + (records.length === 1 ? " game" : " games");
     filterCollection("library");
   } catch (e) { if (version === libraryRenderVersion) { empty.style.display = "block"; empty.textContent = "Could not read games: " + e.message; } urls.forEach(url => URL.revokeObjectURL(url)); }
   finally { if (version === libraryRenderVersion) grid.removeAttribute("aria-busy"); }
 }
 
+/* Demo installs keep EBOOT companions together, outside the flat game index. */
+async function installGameArchive(file, preferredName) {
+  if (file.size > 512 * 1024 * 1024) throw new Error("ZIP exceeds 512 MB");
+  const files = await window.PPSSPPDemos.unzip(new Uint8Array(await file.arrayBuffer()));
+  const packages = window.PPSSPPDemos.packages(files, file.name);
+  const names = [];
+  for (const pkg of packages) {
+    const name = (packages.length === 1 && preferredName ? preferredName : pkg.name).replace(/[^a-zA-Z0-9._-]/g, "_");
+    // Write companions and manifest before publishing the executable to the library.
+    if (pkg.boot) {
+      for (const entry of pkg.files) await opfsMetaPut(name + ".files/" + entry.name, entry.data);
+      await opfsMetaPut(name + ".package.json", new TextEncoder().encode(JSON.stringify(pkg.files.map(f => f.name))));
+    }
+    await opfsPutGame(name, pkg.data);
+    names.push(name);
+  }
+  return names;
+}
+
+async function mountStoredGamePackage(FS, name) {
+  let files;
+  try { files = JSON.parse(new TextDecoder().decode(await opfsMetaRead(name + ".package.json"))); }
+  catch (_) { return null; }
+  const dir = VIRTUAL_GAME_DIR + "/" + name.replace(/\.[^.]+$/, "") + ".package";
+  FS.mkdirTree(dir);
+  for (const file of files) {
+    window.PPSSPPDemos.safePath(file);
+    const path = dir + "/" + file;
+    FS.mkdirTree(path.slice(0, path.lastIndexOf("/")));
+    FS.writeFile(path, await opfsMetaRead(name + ".files/" + file), { canOwn: true });
+  }
+  const path = dir + "/EBOOT.PBP";
+  FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
+  return path;
+}
+
+let demoCatalog = [], demoInstalled = new Set(), demoAbort = null, demoBusy = false;
+function renderDemos() {
+  const grid = byId("demoGrid");
+  if (!grid) return;
+  const query = (byId("demoSearch")?.value || "").trim().toLocaleLowerCase();
+  const region = byId("demoRegion")?.value || "";
+  const demos = demoCatalog.filter(d => (!region || d.region === region) && (d.title + " " + d.productCode + " " + d.region).toLocaleLowerCase().includes(query));
+  replaceCollectionContent(grid, demos.map(d => {
+    const installed = demoInstalled.has(d.name);
+    return `<article class="demo-card"><h3>${esc(d.title)}</h3><p>${esc(d.region)} · ${esc(d.productCode)} · ${formatBytes(d.fileSizeBytes || 0)}</p><div class="action-row"><button type="button" data-demo="${esc(d.url)}" data-focus-key="demo-${esc(d.productCode)}" aria-label="${installed ? "Open installed demo" : "Download and install"} ${esc(d.title)}" ${demoBusy && !installed ? 'disabled' : ''}>${svgIcon(installed ? "play" : "download")} ${installed ? "Open installed demo" : "Download & install"}</button><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Download ZIP</a></div></article>`;
+  }).join(""));
+  if (!demoBusy && demoCatalog.length) byId("demoStatus").textContent = demos.length + " of " + demoCatalog.length + " demos · " + demoCatalog.filter(d => demoInstalled.has(d.name)).length + " installed";
+}
+async function loadDemoCatalog() {
+  const button = byId("demoLoadBtn");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  byId("demoStatus").textContent = "Loading PlayDreamCreate catalog…";
+  try {
+    let response;
+    try {
+      response = await fetch("api/demos/catalog", { signal: AbortSignal.timeout(15000) });
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error("Gateway unavailable");
+    } catch (_) {
+      response = await fetch("https://playdreamcreate.com/data/demos.json", { mode: "cors", credentials: "omit", signal: AbortSignal.timeout(15000) });
+    }
+    if (!response.ok) throw new Error("Catalog HTTP " + response.status);
+    demoCatalog = window.PPSSPPDemos.catalog(await response.json());
+    demoInstalled = new Set((await opfsWalk(OPFS_GAMES_DIR, "", false)).map(g => g.path));
+    renderDemos();
+    button.textContent = "Refresh demos";
+  } catch (e) {
+    byId("demoStatus").textContent = "Could not load demos: " + e.message + ". Retry with Browse demos.";
+  } finally { button.disabled = false; }
+}
+async function downloadDemo(url) {
+  const demo = demoCatalog.find(d => d.url === url);
+  if (!demo) return;
+  if (demoInstalled.has(demo.name)) { await showGameInfo(demo.name); return; }
+  if (demoBusy) return;
+  demoBusy = true;
+  demoAbort = new AbortController();
+  const progress = byId("demoProgress"), cancel = byId("demoCancelBtn"), status = byId("demoStatus");
+  progress.hidden = cancel.hidden = false;
+  progress.removeAttribute("value");
+  byId("demoFallback").hidden = true;
+  status.textContent = "Downloading " + demo.title + "…";
+  renderDemos();
+  try {
+    const archive = new URL(url).pathname.split("/").pop();
+    const response = await fetch("api/demos/download?file=" + encodeURIComponent(archive), { signal: demoAbort.signal });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/zip")) throw new Error("Download gateway unavailable (HTTP " + response.status + ")");
+    const total = Number(response.headers.get("content-length")) || demo.fileSizeBytes;
+    const reader = response.body.getReader(), chunks = []; let received = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      received += part.value.length;
+      if (received > 512 * 1024 * 1024) { await reader.cancel(); throw new Error("Archive exceeds 512 MB"); }
+      chunks.push(part.value);
+      if (total) { progress.max = total; progress.value = received; }
+      status.textContent = "Downloading " + demo.title + " · " + formatBytes(received) + (total ? " / " + formatBytes(total) : "");
+    }
+    demoAbort.signal.throwIfAborted();
+    status.textContent = "Extracting and installing " + demo.title + "…";
+    cancel.hidden = true;
+    progress.removeAttribute("value");
+    const names = await installGameArchive(new File(chunks, archive), demo.name);
+    demoInstalled = new Set((await opfsWalk(OPFS_GAMES_DIR, "", false)).map(g => g.path));
+    await refreshLibrary();
+    await updateStorageInfo();
+    status.textContent = demo.title + " installed. Select Open installed demo to play.";
+    showToast("✓ Installed " + demo.title);
+    // A source product code may differ from the folder in its ZIP.
+    if (names.length === 1) demo.name = names[0];
+  } catch (e) {
+    status.textContent = e.name === "AbortError" ? "Download cancelled." : "Demo installation failed: " + e.message;
+    byId("demoFallback").hidden = e.name === "AbortError";
+  } finally {
+    const message = status.textContent;
+    demoBusy = false; demoAbort = null;
+    progress.hidden = cancel.hidden = true;
+    renderDemos();
+    status.textContent = message;
+  }
+}
+
+
 async function addGameToLibrary(file) {
   showToast("Adding " + file.name + "…");
   try {
-    const storedName = await opfsPutGame(file.name, file);
+    const storedName = /\.zip$/i.test(file.name)
+      ? (await installGameArchive(file)).join(", ")
+      : await opfsPutGame(file.name, file);
     log("Library: added " + storedName + " to OPFS.", "ok");
     showToast("✓ Added " + storedName);
     await refreshLibrary();
@@ -1515,7 +1653,7 @@ function filenameFromURL(url) {
   }
 }
 
-async function readResponseBytes(response, label) {
+async function readResponseBytes(response, label, maxBytes = Infinity) {
   const total = Number(response.headers.get("content-length") || 0);
   if (!response.body?.getReader) return new Uint8Array(await response.arrayBuffer());
 
@@ -1525,8 +1663,9 @@ async function readResponseBytes(response, label) {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
     received += value.byteLength;
+    if (received > maxBytes) { await reader.cancel(); throw new Error("Download exceeds size limit"); }
+    chunks.push(value);
     if (total) {
       const pct = received / total;
       showLoading("Downloading " + label + "… " + Math.round(pct * 100) + "%", pct);
@@ -1548,6 +1687,11 @@ async function readResponseBytes(response, label) {
 
 async function storeGameResponse(name, response) {
   if (!response.ok) throw new Error("Game download failed: HTTP " + response.status);
+  if (/\.zip$/i.test(name)) {
+    const bytes = await readResponseBytes(response, name, 512 * 1024 * 1024);
+    const names = await installGameArchive(new File([bytes], name));
+    return { name: names.join(", "), size: bytes.length };
+  }
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
   const handle = await dir.getFileHandle(fileName, { create: true });
@@ -4506,11 +4650,12 @@ async function preloadStoredGames(FS) {
     try {
       setStatus("Preloading game " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
       showLoading("Preloading game: " + name);
-      const data = await opfsReadGame(name);
-      FS.writeFile(target, data, { canOwn: true });
+      const packagePath = await mountStoredGamePackage(FS, name);
+      const data = packagePath ? null : await opfsReadGame(name);
+      if (data) FS.writeFile(target, data, { canOwn: true });
       ok++;
-      bytesMounted += data.byteLength || 0;
-      log("Startup preload mounted: " + target + " (" + formatBytes(data.byteLength || 0) + ")", "ok");
+      bytesMounted += data?.byteLength || 0;
+      log("Startup preload mounted: " + (packagePath || target), "ok");
     } catch(e) {
       log("Startup preload failed " + name + ": " + e.message, "warn");
     }
@@ -4574,6 +4719,8 @@ async function preloadGame(FS) {
       return fastPath;
     }
   } else if (selectedStoredGame) {
+    const packagePath = await mountStoredGamePackage(FS, selectedStoredGame);
+    if (packagePath) return packagePath;
     const storedFile = await opfsGetGameFile(selectedStoredGame);
     const fastPath = mountGameFileFast(FS, storedFile, safe, "OPFS");
     if (fastPath) return fastPath;
@@ -4954,6 +5101,11 @@ on(startBtn, "click", () => {
   start();
 });
 
+on("demoLoadBtn", "click", loadDemoCatalog);
+on("demoSearch", "input", renderDemos);
+on("demoRegion", "change", renderDemos);
+on("demoCancelBtn", "click", () => demoAbort?.abort());
+on("demoGrid", "click", event => { const button = event.target.closest("button[data-demo]"); if (button) downloadDemo(button.dataset.demo); });
 on("refreshLibraryBtn", "click", refreshLibrary);
 on("libraryGrid", "click", e => {
   const button = e.target.closest("button[data-action]");

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from functools import partial
 
 
+from demo_archive import serve_demo_archive
 from relay_auth import RelayAuth
 from relay import AdhocWebSocketHandler, ThreadingAdhocWebSocketServer, TrackedServerMixin
 
@@ -33,6 +34,7 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         "/favicon.ico",
         "/manifest.webmanifest",
         "/ppsspp-runtime.js",
+        "/demo-library.js",
         "/adhoc-transport.js",
         "/sw.js",
     }
@@ -48,6 +50,8 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if serve_demo_archive(self):
+            return
         if path == "/healthz":
             body = b'{"status":"ok","relay_protocol":1}'
             self.send_response(200)
