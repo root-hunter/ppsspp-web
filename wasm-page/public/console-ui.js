@@ -5,7 +5,7 @@
   const pressed = (pad, index) => !!pad.buttons[index]?.pressed || pad.buttons[index]?.value > 0.5;
   function readActions(pad, mapping = defaults, previous = new Set(), dashboard = false) {
     const result = new Set();
-    for (const [action, index] of Object.entries(mapping)) if (!(pad.mapping === 'standard' && index === 16) && pressed(pad, index)) result.add(action);
+    for (const [action, index] of Object.entries(mapping)) if (!['pagePrevious', 'pageNext'].includes(action) && !(pad.mapping === 'standard' && index === 16) && pressed(pad, index)) result.add(action);
     // A little hysteresis prevents drift around the activation threshold.
     for (const [action, axis, sign] of [['left', 0, -1], ['right', 0, 1], ['up', 1, -1], ['down', 1, 1]]) {
       if ((pad.axes[axis] || 0) * sign > (previous.has(action) ? 0.35 : 0.55)) result.add(action);
@@ -14,17 +14,28 @@
     if (!dashboard && mapping.menu === undefined && pressed(pad, 10) && pressed(pad, 11)) result.add('menu');
     return result;
   }
-  function samplePageButtons(state, pad, mapping = defaults, dashboard = false) {
-    if (!dashboard || pad.mapping !== 'standard') { delete state.pageClicks; return []; }
-    const assigned = Object.values(mapping);
-    const left = !assigned.includes(10) && pressed(pad, 10);
-    const right = !assigned.includes(11) && pressed(pad, 11);
-    const prior = state.pageClicks || { left: false, right: false, chord: false };
+  function samplePageButtons(state, pad, mapping = defaults, dashboard = false, now = Date.now()) {
+    if (!dashboard) { delete state.pageClicks; return []; }
+    const assigned = Object.entries(mapping).filter(([action]) => !['pagePrevious', 'pageNext'].includes(action)).map(([, index]) => index);
+    const indexFor = (action, fallback) => Number.isInteger(mapping[action]) ? mapping[action] : assigned.includes(fallback) ? null : fallback;
+    const previousIndex = indexFor('pagePrevious', 10), nextIndex = indexFor('pageNext', 11);
+    const left = previousIndex !== null && pressed(pad, previousIndex);
+    const right = nextIndex !== null && pressed(pad, nextIndex);
+    const prior = state.pageClicks || { left: false, right: false, chord: false, fired: false };
     const chord = prior.chord || (left && right);
+    const started = (left && !prior.left) || (right && !prior.right) ? now : prior.started;
+    let fired = prior.fired;
+    if ((left || right) && !prior.left && !prior.right) fired = false;
     const events = [];
-    if (!chord && prior.left && !left && !right) events.push('page-previous');
-    if (!chord && prior.right && !right && !left) events.push('page-next');
-    state.pageClicks = { left, right, chord: (left || right) && chord };
+    // Give a simultaneous L3+R3 chord a short arbitration window, then fire once
+    // while held. Short clicks still fire on release without waiting for a frame.
+    if (!chord && !fired) {
+      if (left && !right && now - started >= 75) { events.push('page-previous'); fired = true; }
+      else if (right && !left && now - started >= 75) { events.push('page-next'); fired = true; }
+      else if (prior.left && !left && !right) { events.push('page-previous'); fired = true; }
+      else if (prior.right && !right && !left) { events.push('page-next'); fired = true; }
+    }
+    state.pageClicks = { left, right, chord: (left || right) && chord, fired, started };
     return events;
   }
   function rightStickScroll(pad, elapsedMs) {
@@ -379,6 +390,23 @@
     mappingStep = { id: pad.id, index: pad.index, step: 0, mapping: {}, armed: false };
     prompt.textContent = 'Release all buttons, then press: UP'; focus(card.querySelector('button'));
   }
+  function configurePageButtons() {
+    const pads = bridge.getGamepads().filter(Boolean);
+    const pad = pads.find(p => p.index === window.__ppssppActiveGamepadIndex) || pads[0];
+    if (!pad) { bridge.notify('Connect a controller and press a button first.'); return; }
+    const card = createDialog('Configure page buttons');
+    const help = document.createElement('p');
+    help.textContent = 'Press L3 for the previous page, then R3 for the next. Existing navigation bindings are preserved; choose a free button if a stick click is already assigned.';
+    card.append(help);
+    const prompt = document.createElement('p'); prompt.id = 'consoleMappingPrompt'; card.append(prompt);
+    button(card, 'Cancel', () => closeDialog());
+    const mapping = { ...defaults, ...mappings[pad.id] };
+    delete mapping.pagePrevious; delete mapping.pageNext;
+    mappingStep = { id: pad.id, index: pad.index, step: 0, mapping, actions: ['pagePrevious', 'pageNext'], armed: false };
+    prompt.textContent = 'Release all buttons, then press L3 (previous page).';
+    focus(card.querySelector('button'));
+  }
+  byId('configurePageButtonsBtn')?.addEventListener('click', configurePageButtons);
   byId('configureControllerBtn')?.addEventListener('click', configure);
   byId('resetControllerBtn')?.addEventListener('click', () => {
     mappings = {}; try { localStorage.removeItem(storageKey); } catch (_) {}
@@ -390,14 +418,15 @@
     if (!mappingStep.armed) return;
     const index = pad.buttons.findIndex(b => b.pressed || b.value > 0.5);
     if ((pad.mapping === 'standard' && index === 16) || Object.values(mappingStep.mapping).includes(index)) return;
-    mappingStep.mapping[mappingActions[mappingStep.step++]] = index; mappingStep.armed = false;
-    if (mappingStep.step === mappingActions.length) {
+    const actions = mappingStep.actions || mappingActions;
+    mappingStep.mapping[actions[mappingStep.step++]] = index; mappingStep.armed = false;
+    if (mappingStep.step === actions.length) {
       mappings[mappingStep.id] = mappingStep.mapping;
       try { localStorage.setItem(storageKey, JSON.stringify(mappings)); } catch (_) {}
       byId('controllerMappingStatus').textContent = 'Custom UI mapping saved for ' + pad.id;
       closeDialog(); releaseGate = true; return;
     }
-    byId('consoleMappingPrompt').textContent = 'Release all buttons, then press: ' + mappingActions[mappingStep.step].toUpperCase();
+    byId('consoleMappingPrompt').textContent = 'Release all buttons, then press: ' + (actions[mappingStep.step] === 'pageNext' ? 'R3 (next page)' : actions[mappingStep.step].toUpperCase());
   }
   document.addEventListener('consolevisibilitychange', () => { releaseGate = true; window.__ppssppConsoleInputBlocked = true; });
   document.addEventListener('pointerdown', event => {
@@ -461,7 +490,7 @@
       const guide = sampleGuideButton(state, pad.mapping === 'standard' && pressed(pad, 16), now);
       if (releaseGate) { state.held = input; state.repeat.clear(); delete state.pageClicks; continue; }
       const events = sampleActions(state, input, now);
-      events.push(...samplePageButtons(state, pad, mapping, dashboard));
+      events.push(...samplePageButtons(state, pad, mapping, dashboard, now));
       if (guide) events.push(guide);
       if (dashboard) scrollControllerPage(pad, elapsed);
       for (const name of events) {

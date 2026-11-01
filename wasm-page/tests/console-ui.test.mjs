@@ -276,3 +276,24 @@ test('right-stick scrolling has a dead zone, proportional speed, bounded delta a
   assert.equal(scroll(pad([], [0, 0, -1, -1]), 16).x, 0);
   assert.equal(scroll(stick(0, 1), 0).y, 0);
 });
+
+test('generic controller stick clicks page while held, fire once, and respect a remapped pair', () => {
+  const {samplePageButtons: sample} = context.window.PPSSPPConsoleNavigation;
+  const state = {};
+  assert.deepEqual([...sample(state, pad([11]), undefined, true, 0)], []);
+  assert.deepEqual([...sample(state, pad([11]), undefined, true, 80)], ['page-next']);
+  assert.deepEqual([...sample(state, pad([11]), undefined, true, 1000)], []);
+  assert.deepEqual([...sample(state, pad([]), undefined, true, 1100)], []);
+  const mapping = {pagePrevious: 8, pageNext: 9};
+  sample(state, pad([8]), mapping, true, 1200);
+  assert.deepEqual([...sample(state, pad([8]), mapping, true, 1280)], ['page-previous']);
+  assert.deepEqual([...readActions(pad([8]), mapping)], []);
+});
+test('a chord within the arbitration window does not change either page', () => {
+  const {samplePageButtons: sample} = context.window.PPSSPPConsoleNavigation;
+  const state = {};
+  sample(state, pad([10]), undefined, true, 0);
+  assert.deepEqual([...sample(state, pad([10, 11]), undefined, true, 30)], []);
+  assert.deepEqual([...sample(state, pad([10, 11]), undefined, true, 1000)], []);
+  assert.deepEqual([...sample(state, pad([]), undefined, true, 1100)], []);
+});

@@ -1582,11 +1582,13 @@ async function changeLibraryPage(delta) {
 }
 function activeCollectionKind() {
   const origin = document.activeElement;
-  if (origin?.closest("#demoSection")) return "demo";
-  if (origin?.closest("#libraryPanel")) return "library";
   const viewport = byId("tabLibrary").getBoundingClientRect();
+  const focused = origin?.getBoundingClientRect();
+  const onScreen = focused && focused.bottom > viewport.top && focused.top < viewport.bottom;
+  if (onScreen && origin.closest("#demoSection")) return "demo";
+  if (onScreen && origin.closest("#libraryPanel")) return "library";
   const overlap = id => { const r = byId(id).getBoundingClientRect(); return Math.max(0, Math.min(r.bottom, viewport.bottom) - Math.max(r.top, viewport.top)); };
-  return overlap("demoGrid") > overlap("libraryGrid") ? "demo" : "library";
+  return overlap("demoSection") > overlap("libraryGrid") ? "demo" : "library";
 }
 function updateCollectionPageStatus() {
   const label = byId("controllerPageStatus");

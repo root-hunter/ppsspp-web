@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-controller-pages-v6';
+const RUNTIME_ASSET_VERSION = '2026-11-01-controller-paging-fix-v7';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v26-controller-pages";
+const CACHE_VERSION = "ppsspp-angular-v27-controller-paging-fix";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [

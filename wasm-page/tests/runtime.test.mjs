@@ -1003,3 +1003,21 @@ test('library pagination filters and sorts the full collection and reads artwork
   await ctx.renderLibraryPage();
   assert(rendered.at(-1).indexOf('Game 34') < rendered.at(-1).indexOf('Game 33'));
 });
+
+test('page target follows the visible demo section instead of stale offscreen library focus', () => {
+  const rect = (top, bottom) => ({top, bottom});
+  let focusedRect = rect(-400, -300);
+  const nodes = {
+    tabLibrary: {getBoundingClientRect: () => rect(100, 800)},
+    libraryGrid: {getBoundingClientRect: () => rect(-1000, -100)},
+    demoSection: {getBoundingClientRect: () => rect(200, 2000)},
+  };
+  const origin = {getBoundingClientRect: () => focusedRect, closest: selector => selector === '#libraryPanel' ? {} : null};
+  const ctx = load(['activeCollectionKind'], {document: {activeElement: origin}, byId: id => nodes[id]});
+  assert.equal(ctx.activeCollectionKind(), 'demo');
+  // The catalog toolbar is visible even if its first card is still below the viewport.
+  nodes.demoSection.getBoundingClientRect = () => rect(700, 2000);
+  assert.equal(ctx.activeCollectionKind(), 'demo');
+  focusedRect = rect(150, 200);
+  assert.equal(ctx.activeCollectionKind(), 'library');
+});
