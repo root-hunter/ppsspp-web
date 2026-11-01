@@ -1650,6 +1650,7 @@ async function mountStoredGamePackage(FS, name) {
   return path;
 }
 
+let demoGateway = false;
 let demoCatalog = [], demoInstalled = new Set(), demoAbort = null, demoBusy = false;
 let demoPage = 1, demoPages = 1, demoInstalledOnly = false, demoCatalogState = "idle", demoTransfer = null;
 function renderDemos() {
@@ -1686,11 +1687,14 @@ function renderDemos() {
       const initials = d.title.split(/\s+/).slice(0, 2).map(word => [...word][0]).join("").toUpperCase();
       const tone = [...d.productCode].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 5;
       const action = installed ? "Open demo" : active ? "Installing…" : "Install demo";
+      const controls = !installed && !demoGateway
+        ? `<a class="btn primary" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" data-focus-key="demo-${esc(d.productCode)}" aria-label="Download ${esc(d.title)} ZIP">${svgIcon("download")} Download ZIP</a><button type="button" data-demo-import aria-label="Import downloaded demo ZIP">Import ZIP</button>`
+        : `<button type="button" class="${installed ? '' : 'primary'}" data-demo="${esc(d.url)}" data-focus-key="demo-${esc(d.productCode)}" aria-label="${installed ? 'Open' : 'Install'} ${esc(d.title)}" ${demoBusy && !installed ? 'disabled' : ''}>${svgIcon(installed ? "play" : "download")} ${action}</button><a class="demo-zip-link" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" aria-label="Download ${esc(d.title)} ZIP">ZIP ${svgIcon("download")}</a>`;
       return `<article class="demo-card demo-tone-${tone} ${installed ? 'is-installed' : ''} ${active ? 'is-installing' : ''}" aria-labelledby="demo-title-${esc(d.productCode)}">
         <div class="demo-card-art" aria-hidden="true"><span class="demo-card-platform">PSP / DEMO</span><span class="demo-monogram">${esc(initials)}</span><span class="demo-card-orbit"></span></div>
         <div class="demo-card-content"><div class="demo-card-labels"><span class="demo-region">${esc(d.region)}</span><span class="demo-card-size">${formatBytes(d.fileSizeBytes || 0)}</span>${installed ? '<span class="demo-installed-label">✓ Installed</span>' : ''}${active ? '<span class="demo-installed-label">In progress</span>' : ''}</div>
         <h3 id="demo-title-${esc(d.productCode)}">${esc(d.title)}</h3><p class="demo-code">${esc(d.productCode)}</p>
-        <div class="demo-card-actions"><button type="button" class="${installed ? '' : 'primary'}" data-demo="${esc(d.url)}" data-focus-key="demo-${esc(d.productCode)}" aria-label="${installed ? 'Open' : 'Install'} ${esc(d.title)}" ${demoBusy && !installed ? 'disabled' : ''}>${svgIcon(installed ? "play" : "download")} ${action}</button><a class="demo-zip-link" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer" aria-label="Download ${esc(d.title)} ZIP">ZIP ${svgIcon("download")}</a></div></div>
+        <div class="demo-card-actions">${controls}</div></div>
       </article>`;
     }).join(""));
   }
@@ -1724,15 +1728,10 @@ async function loadDemoCatalog() {
   byId("demoStatus").textContent = "Connecting to PlayDreamCreate…";
   renderDemos();
   try {
-    let response;
-    try {
-      response = await fetch("api/demos/catalog", { signal: AbortSignal.timeout(15000) });
-      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error("Gateway unavailable");
-    } catch (_) {
-      response = await fetch("https://playdreamcreate.com/data/demos.json", { mode: "cors", credentials: "omit", signal: AbortSignal.timeout(15000) });
-    }
-    if (!response.ok) throw new Error("Catalog HTTP " + response.status);
-    demoCatalog = window.PPSSPPDemos.catalog(await response.json());
+    const result = await window.PPSSPPDemos.loadCatalog({ staticHosting: /(^|\.)github\.io$/i.test(location.hostname) });
+    demoCatalog = result.records;
+    demoGateway = result.gateway;
+    byId("demoFallback").hidden = demoGateway;
     demoInstalled = new Set((await opfsWalk(OPFS_GAMES_DIR, "", false)).map(g => g.path));
     demoCatalogState = "ready";
     button.innerHTML = svgIcon("refresh") + "<span>Refresh catalog</span>";
@@ -1817,8 +1816,7 @@ async function downloadDemo(url) {
   renderDemos();
   try {
     const archive = new URL(url).pathname.split("/").pop();
-    const response = await fetch("api/demos/download?file=" + encodeURIComponent(archive), { signal: demoAbort.signal });
-    if (!response.ok || !response.headers.get("content-type")?.includes("application/zip")) throw new Error("The download service is unavailable right now.");
+    const response = await window.PPSSPPDemos.download(url, { signal: demoAbort.signal, gateway: demoGateway });
     const total = Number(response.headers.get("content-length")) || 0;
     const reader = response.body.getReader(), chunks = []; let received = 0, lastUpdate = 0, announced = -1;
     const started = performance.now();
@@ -5440,7 +5438,11 @@ on("demoDismissBtn", "click", event => { event.preventDefault(); event.stopPropa
 on("demoRetryBtn", "click", () => { if (demoTransfer) downloadDemo(demoTransfer.url); });
 on("demoOpenBtn", "click", () => { if (demoTransfer?.name) showGameInfo(demoTransfer.name); });
 on("demoCancelBtn", "click", () => { if (demoAbort) { const focusAfterCancel = document.activeElement === byId("demoCancelBtn"); updateDemoTransfer({ cancelling: true, focusAfterCancel, detail: "Stopping the download…" }, true); demoAbort.abort(); } });
-on("demoGrid", "click", event => { const button = event.target.closest("button[data-demo]"); if (button) downloadDemo(button.dataset.demo); });
+on("demoGrid", "click", event => {
+  if (event.target.closest("button[data-demo-import]")) { byId("libraryImportFile").click(); return; }
+  const button = event.target.closest("button[data-demo]");
+  if (button) downloadDemo(button.dataset.demo);
+});
 document.addEventListener("focusin", updateCollectionPageStatus);
 on("tabLibrary", "scroll", updateCollectionPageStatus);
 on("libraryPrevBtn", "click", () => changeLibraryPage(-1));

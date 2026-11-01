@@ -494,7 +494,7 @@ button.demo-text-button { padding: 4px 8px; min-height: 32px; border: 0; backgro
 .demo-card h3 { font-size: 15px; letter-spacing: -.015em; line-height: 1.4; overflow-wrap: anywhere; }
 .demo-code { color: var(--muted); font-size: 10px; letter-spacing: .06em; margin-top: 6px; margin-bottom: 22px; }
 .demo-card-actions { display: flex; align-items: center; gap: 12px; margin-top: auto; }
-.demo-card-actions button { flex: 1; border-radius: 8px; font-size: 12px; min-height: 40px; padding: 9px 10px; }
+.demo-card-actions button, .demo-card-actions > .btn { flex: 1; border-radius: 8px; font-size: 12px; min-height: 40px; padding: 9px 10px; }
 .demo-card-actions .lucide { width: 15px; height: 15px; flex-basis: 15px; }
 .demo-zip-link { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 10px; text-decoration: none; min-height: 40px; padding: 6px 2px; }
 .demo-zip-link:hover { color: var(--text); }

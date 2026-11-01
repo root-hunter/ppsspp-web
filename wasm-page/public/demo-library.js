@@ -2,6 +2,38 @@
 (() => {
   'use strict';
   const MAX_BYTES = 512 * 1024 * 1024;
+  async function loadCatalog({ fetcher = globalThis.fetch, staticHosting = false } = {}) {
+    const sources = staticHosting ? ['demo-catalog.json', 'https://playdreamcreate.com/data/demos.json']
+      : ['api/demos/catalog', 'demo-catalog.json', 'https://playdreamcreate.com/data/demos.json'];
+    for (const source of sources) {
+      try {
+        const response = await fetcher(source, { credentials: 'omit', signal: AbortSignal.timeout(15000) });
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
+        const records = catalog(await response.json());
+        if (!records.length) continue;
+        return { records, gateway: source === 'api/demos/catalog' };
+      } catch (_) { /* Try the next independent catalog source. */ }
+    }
+    throw new Error('Demo catalog unavailable');
+  }
+  async function download(url, { signal, gateway = false, fetcher = globalThis.fetch } = {}) {
+    const [record] = catalog([{ url, title: '', productCode: 'download' }]);
+    if (!record) throw new Error('Invalid demo URL');
+    const sources = [record.url];
+    if (gateway) sources.push('api/demos/download?file=' + encodeURIComponent(new URL(record.url).pathname.slice(1)));
+    for (const source of sources) {
+      signal?.throwIfAborted();
+      try {
+        const response = await fetcher(source, { mode: 'cors', credentials: 'omit', signal });
+        const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+        if (response.ok && response.body && ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(type)) return response;
+        await response.body?.cancel();
+      } catch (error) {
+        signal?.throwIfAborted();
+      }
+    }
+    throw new Error('Automatic installation is unavailable. Download the ZIP, then select Import ZIP.');
+  }
   function catalog(records) {
     if (!Array.isArray(records)) throw new Error('Invalid demo catalog');
     return records.flatMap(record => {
@@ -126,5 +158,5 @@
     return { percent: total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null,
       speed, remaining: total > received && speed > 0 ? Math.ceil((total - received) / speed) : null };
   }
-  globalThis.PPSSPPDemos = { catalog, unzip, packages, safePath, crc32, browse, paginate, transferMetrics };
+  globalThis.PPSSPPDemos = { catalog, loadCatalog, download, unzip, packages, safePath, crc32, browse, paginate, transferMetrics };
 })();
