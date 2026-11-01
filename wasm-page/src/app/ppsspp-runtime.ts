@@ -59,7 +59,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-hybrid-webrtc-v1';
+const RUNTIME_ASSET_VERSION = '2026-11-01-network-nickname-v2';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

@@ -2292,6 +2292,28 @@ function applyMultiplayerTimingConfig(text) {
   return patchIniValue(text, "General", "ForceLagSync2", "False");
 }
 
+async function syncGameNetworkNicknames(FS, root) {
+  const cfg = loadNetworkConfig();
+  if (!cfg.enabled) return;
+  const directory = root + "/PSP/SYSTEM";
+  let names;
+  try { names = FS.readdir(directory); } catch (_) { return; }
+  for (const name of names) {
+    if (!/_ppsspp(?:vr)?\.ini$/i.test(name)) continue;
+    const path = directory + "/" + name;
+    try {
+      const text = new TextDecoder().decode(FS.readFile(path));
+      const patched = patchIniValue(text, "SystemParam", "NickName", cfg.nick);
+      if (patched === text) continue;
+      const bytes = new TextEncoder().encode(patched);
+      FS.writeFile(path, bytes);
+      await opfsPut(path, bytes);
+    } catch (error) {
+      log("Network: failed to apply nickname at " + path + ": " + error.message, "warn");
+    }
+  }
+}
+
 async function forceGamesDirectoryConfig(FS) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -2324,6 +2346,8 @@ async function forceGamesDirectoryConfig(FS) {
     } catch(e) {
       log("Config: failed to apply web defaults at " + iniPath + ": " + e.message, "warn");
     }
+    // The core loads game overrides after ppsspp.ini, including NickName.
+    await syncGameNetworkNicknames(FS, root);
   }
 }
 

@@ -437,6 +437,7 @@ test('startup preserves saved graphics, timing, audio and touch settings across 
         loadNetworkConfig: () => ({ enabled: false }),
         preferences: { getItem: () => legacyProfile },
         applyNetworkConfig: async (_, text) => text,
+        syncGameNetworkNicknames: async () => {},
         opfsPut: async () => {}, log() {},
       }, declarations);
       const FS = { readFile: () => new TextEncoder().encode(config), writeFile: (_, bytes) => { config = new TextDecoder().decode(bytes); } };
@@ -498,4 +499,42 @@ test('network status distinguishes a relay check from an active game and surface
   assert.equal(ctx.networkStatusView(cfg, { state: 'disconnected' }, { state: 'unverified' }).title, 'Disconnected');
   assert.equal(ctx.networkStatusView({ enabled: false }, null, { state: 'unverified' }).title, 'Multiplayer disabled');
   assert.equal(ctx.networkStatusView(cfg, { state: 'registered' }, {}, 200, false).title, 'You are offline');
+});
+
+test('saved game overrides cannot replace the Network nickname at multiplayer startup', async () => {
+  const dir = '/config/PSP/SYSTEM/';
+  const original = '[Graphics]\nInternalResolution = 4\n[SystemParam]\nNickName = OldPlayer\nMacAddress = 02:00:00:00:00:09\n[Network]\nMinTimeout = 7\n';
+  const files = new Map([
+    [dir + 'ULES01376_ppsspp.ini', original],
+    [dir + 'ULUS10466_ppsspp.ini', '[Sound]\nEnable = False\n'],
+    [dir + 'ULES01376_ppssppvr.ini', original],
+    [dir + 'ppsspp.ini', original],
+    [dir + 'controls.ini', '[ControlMapping]\nCross = 1-2\n'],
+  ]);
+  const saved = new Map();
+  let enabled = true;
+  const FS = {
+    readdir: () => ['.', '..', ...[...files.keys()].map(p => p.slice(dir.length))],
+    readFile: p => new TextEncoder().encode(files.get(p)),
+    writeFile: (p, bytes) => files.set(p, new TextDecoder().decode(bytes)),
+  };
+  const ctx = load(['syncGameNetworkNicknames', 'patchIniValue'], {
+    loadNetworkConfig: () => ({ enabled, nick: 'NewPlayer' }),
+    opfsPut: async (p, bytes) => saved.set(p, new TextDecoder().decode(bytes)), log() {},
+  });
+  await ctx.syncGameNetworkNicknames(FS, '/config');
+  for (const name of ['ULES01376_ppsspp.ini', 'ULES01376_ppssppvr.ini']) {
+    assert.equal(files.get(dir + name), original.replace('OldPlayer', 'NewPlayer'));
+    assert.equal(saved.get(dir + name), files.get(dir + name));
+  }
+  assert.match(files.get(dir + 'ULUS10466_ppsspp.ini'), /NickName = NewPlayer/);
+  assert.equal(files.get(dir + 'ppsspp.ini'), original);
+  assert.equal(files.get(dir + 'controls.ini'), '[ControlMapping]\nCross = 1-2\n');
+  saved.clear();
+  await ctx.syncGameNetworkNicknames(FS, '/config');
+  assert.equal(saved.size, 0); // unchanged startup does not rewrite persisted configs
+  enabled = false;
+  files.set(dir + 'ULES01376_ppsspp.ini', original);
+  await ctx.syncGameNetworkNicknames(FS, '/config');
+  assert.equal(files.get(dir + 'ULES01376_ppsspp.ini'), original);
 });
