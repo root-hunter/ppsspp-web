@@ -78,7 +78,7 @@ without reloading the page. Multiplayer changes are applied by Save settings.
 | Native PPSSPP menu | PS / Guide, short press | Escape during gameplay |
 | Open dashboard | Hold PS / Guide for 650 ms | — |
 | Open dashboard during gameplay | L3 + R3 together | F1 |
-| Previous / next collection page | L3 / R3 click (on release) | Focus Previous / Next and press Enter |
+| Previous / next collection page | L3 / R3 click | Focus Previous / Next and press Enter |
 | Scroll the active page or dialog | Right stick | Wheel / native scrolling |
 | Fullscreen | Y / Triangle in a menu | F10 |
 | Edit a dropdown | Select opens options; D-pad moves; Select applies; Back cancels | Native select keys |
@@ -257,12 +257,14 @@ and the 390px mobile layout. This does not replace physical controller testing.
 
 ## Controller collection navigation
 
-Standard-mapped controllers use L3 for the previous collection page and R3 for the
-next. Clicks fire on release once, with no hold repeat; pressing both together in
-the dashboard does not turn pages or close the menu. The L3+R3 dashboard shortcut
+L3 and R3 use buttons 10/11 by default for both standard and generic controllers.
+A single press fires after a 75ms chord-arbitration window, with no hold repeat;
+shorter clicks fire on release. Pressing both during that window does not turn
+pages or close the dashboard. The L3+R3 dashboard shortcut
 remains available during gameplay. Custom UI bindings assigned to these buttons
-take precedence. Paging is scoped to the focused collection (library or demos),
-or the visible collection when focus is on the header/session controls. Dialogs
+take precedence. Paging is scoped to the focused collection only while its focus is visible.
+Offscreen focus and header/session controls use the visible collection, including
+the demo toolbar before its first card scrolls into view. Dialogs
 and non-library sections do not turn background collection pages. Page limits do
 not wrap or move focus. The controller footer reports Games / Demos and the current
 page, including on mobile. Pagination buttons are above each grid.
@@ -280,3 +282,20 @@ reads, page button edges/chord/custom-binding checks and scroll dead-zone/timing
 checks. A Chrome controller simulation exercised a 35-game library, incomplete
 last pages, selection preservation, full-library search, right-stick scrolling,
 demo paging, modal exclusion and a 390px mobile viewport.
+
+Paging regression fix: non-standard controllers no longer silently lose L3/R3.
+System → Configure page buttons remaps the previous/next actions independently,
+preserving existing navigation bindings and allowing devices with different stick
+button indices. Page mappings are excluded from ordinary action dispatch to avoid
+double commands. A Chrome test verified generic and standard pad mappings, stale
+library focus while viewing demos, press/short-click behavior and remapped buttons
+8/9 without replacing Select/Back bindings.
+
+Paging input has a separate per-controller button-release latch. Analog stick
+drift and a held input on another controller cannot prevent L3/R3 from changing
+pages. Opening the dashboard or reconnecting still requires releasing the page
+buttons before another click. System's compact input test shows the loaded
+`paging-v8` revision, controller identity, last pressed button indices and last
+page-command result. The same state is included in exported diagnostic reports.
+A Chrome simulation verifies paging with a drifting selected pad and a held
+button on a second pad, as well as standard and remapped page buttons.

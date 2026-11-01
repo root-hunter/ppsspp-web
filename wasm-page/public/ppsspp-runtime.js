@@ -5119,7 +5119,7 @@ async function exportDiagnosticReport() {
     opfsAvailable: hasOPFS(), buildDirectory: BUILD_DIR, coreRevision: BUILD_STAMP,
     runtimeReady, status: statusEl?.textContent,
     graphics: ["iRenderer", "iVendor", "iVersion"].map(id => ({ name: id, value: byId(id)?.textContent })),
-    audio: { ...audioDebug }, configs,
+    audio: { ...audioDebug }, controller: window.__ppssppControllerDiagnostics || null, configs,
     logs: [...logLines, ...pendingLines].slice(-500).map(line => line.raw
       .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
       .replace(/([?&#](?:access_token|id_token|session_key|code|state)=)[^&\s]+/gi, "$1[redacted]")),

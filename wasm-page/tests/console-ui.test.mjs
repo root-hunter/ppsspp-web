@@ -43,6 +43,33 @@ test('generic trigger and hat axes at rest do not prevent UI activation', () => 
   assert.equal(neutral({ ...pad([], [0, 0, 0.8, 0]), mapping: 'standard' }), false);
 });
 
+test('page clicks arm independently of stick drift and the navigation release gate', () => {
+  const { samplePageInput: sample } = context.window.PPSSPPConsoleNavigation;
+  const state = { ready: false };
+  const drifting = buttons => ({ ...pad(buttons, [.65, 0, .7, 0]), mapping: 'standard' });
+  assert.equal(neutral(drifting([])), false);
+  assert.deepEqual([...sample(state, drifting([]), undefined, true, 0)], []);
+  assert.equal(state.pageReady, true);
+  assert.deepEqual([...sample(state, drifting([11]), undefined, true, 10)], []);
+  assert.deepEqual([...sample(state, drifting([11]), undefined, true, 100)], ['page-next']);
+  assert.equal(state.ready, false);
+  assert.deepEqual([...sample(state, drifting([11]), undefined, true, 300)], []);
+});
+
+test('page input requires release after reconnect or dashboard opening', () => {
+  const { samplePageInput: sample } = context.window.PPSSPPConsoleNavigation;
+  const state = {};
+  for (const now of [0, 100, 200]) assert.deepEqual([...sample(state, pad([11]), undefined, true, now)], []);
+  sample(state, pad([]), undefined, true, 300);
+  sample(state, pad([11]), undefined, true, 400);
+  assert.deepEqual([...sample(state, pad([]), undefined, true, 440)], ['page-next']);
+  state.pageReady = false;
+  assert.deepEqual([...sample(state, pad([10]), undefined, true, 500)], []);
+  sample(state, pad([]), undefined, true, 550);
+  sample(state, pad([10]), undefined, false, 600);
+  assert.deepEqual([...sample(state, pad([]), undefined, false, 700)], []);
+});
+
 test('spatial movement follows rows and columns without jumping diagonally or wrapping', () => {
   const rect = (left, top, width = 100, height = 44) => ({ left, top, width, height });
   const candidates = [

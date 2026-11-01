@@ -47,6 +47,16 @@
     const distance = Math.pow((Math.min(1, magnitude) - .3) / .7, 1.5) * 1100 * Math.min(50, Math.max(0, elapsedMs)) / 1000;
     return { x: x / magnitude * distance, y: y / magnitude * distance };
   }
+  function samplePageInput(state, pad, mapping, dashboard, now) {
+    // Stick drift and other connected pads must not suppress digital page clicks.
+    // On opening/reconnecting, only wait for this pad's buttons to be released.
+    if (!state.pageReady) {
+      state.pageReady = !pad.buttons.some(button => button.pressed || button.value > .5);
+      delete state.pageClicks;
+      return [];
+    }
+    return samplePageButtons(state, pad, mapping, dashboard, now);
+  }
   function neutral(pad) {
     return !pad.buttons.some(b => b.pressed || b.value > 0.5) && !pad.axes.slice(0, pad.mapping === 'standard' ? 4 : 2).some(a => Math.abs(a) > 0.35);
   }
@@ -95,7 +105,7 @@
     return best;
   }
   // Also exposed for deterministic regression tests without starting a browser.
-  window.PPSSPPConsoleNavigation = { readActions, sampleActions, sampleGuideButton, samplePageButtons, rightStickScroll, spatialTarget, neutral, defaults };
+  window.PPSSPPConsoleNavigation = { readActions, sampleActions, sampleGuideButton, samplePageButtons, samplePageInput, rightStickScroll, spatialTarget, neutral, defaults };
   if (!window.PPSSPPConsole) return;
   const bridge = window.PPSSPPConsole;
   const byId = id => document.getElementById(id);
@@ -106,6 +116,25 @@
   let dialog = null, restoreFocus = null, editTarget = null, draft = '', caps = false, resolveConfirmation = null;
   let mappingStep = null, releaseGate = true;
   const states = new Map();
+  const inputDebug = window.__ppssppControllerDiagnostics = { revision: 'paging-v8', lastButtons: [], lastPage: null };
+  function updateInputDiagnostics(pads) {
+    inputDebug.focused = document.hasFocus();
+    inputDebug.selectedIndex = window.__ppssppActiveGamepadIndex;
+    inputDebug.releaseGate = releaseGate;
+    inputDebug.controllers = pads.map(pad => ({
+      id: pad.id, index: pad.index, mapping: pad.mapping,
+      buttons: Array.from(pad.buttons, (button, index) => pressed(pad, index) ? index : -1).filter(index => index >= 0),
+      axes: Array.from(pad.axes, axis => Math.round(axis * 100) / 100),
+      bindings: mappings[pad.id] || defaults,
+    }));
+    const active = inputDebug.controllers.find(pad => pad.buttons.length);
+    if (active) inputDebug.lastButtons = active.buttons;
+    const label = byId('controllerInputDiagnostic');
+    const text = 'Input test · paging-v8 · ' + (pads.length ? pads.map(pad => pad.id).join(' / ') +
+      ' · last buttons: ' + (inputDebug.lastButtons.join(', ') || 'none') : 'No controller detected. Press a button.') +
+      (inputDebug.lastPage ? ' · ' + inputDebug.lastPage : '');
+    if (label && label.textContent !== text) label.textContent = text;
+  }
   const fullscreenMenuOpen = () => byId('fsMenuToggle')?.getAttribute('aria-expanded') === 'true';
   const recoveryOpen = () => byId('runtimeRecovery')?.hidden === false;
   const uiOpen = () => body.classList.contains('panel-open') || byId('gameInfoModal')?.classList.contains('visible') || byId('saveInfoModal')?.classList.contains('visible') || !!dialog || fullscreenMenuOpen() || recoveryOpen();
@@ -370,7 +399,12 @@
     if (name === 'menu') { if (dialog) back(); else bridge.setOpen(!body.classList.contains('panel-open')); return; }
     if (!uiOpen()) return;
     if (name === 'page-previous' || name === 'page-next') {
-      if (!dialog && root() === byId('sidePanel')) void bridge.page?.(name === 'page-previous' ? -1 : 1);
+      if (!dialog && root() === byId('sidePanel')) {
+        inputDebug.lastPage = name + ': requested';
+        Promise.resolve(bridge.page?.(name === 'page-previous' ? -1 : 1)).then(changed => {
+          inputDebug.lastPage = name + (changed ? ': changed' : ': no page change');
+        }).catch(error => { inputDebug.lastPage = name + ': ' + error.message; });
+      }
       return;
     }
     if (directions.includes(name)) navigate(name);
@@ -428,7 +462,7 @@
     }
     byId('consoleMappingPrompt').textContent = 'Release all buttons, then press: ' + (actions[mappingStep.step] === 'pageNext' ? 'R3 (next page)' : actions[mappingStep.step].toUpperCase());
   }
-  document.addEventListener('consolevisibilitychange', () => { releaseGate = true; window.__ppssppConsoleInputBlocked = true; });
+  document.addEventListener('consolevisibilitychange', () => { releaseGate = true; for (const state of states.values()) state.pageReady = false; window.__ppssppConsoleInputBlocked = true; });
   document.addEventListener('pointerdown', event => {
     body.classList.remove('console-controller');
     for (const detail of document.querySelectorAll('.collection-tools[open]')) if (!detail.contains(event.target)) detail.open = false;
@@ -464,14 +498,15 @@
   document.addEventListener('visibilitychange', () => { states.clear(); releaseGate = true; });
   function poll(now) {
     requestAnimationFrame(poll);
-    if (document.hidden || !document.hasFocus()) { states.clear(); releaseGate = true; window.__ppssppConsoleInputBlocked = true; return; }
+    if (document.hidden || !document.hasFocus()) { states.clear(); releaseGate = true; inputDebug.focused = false; window.__ppssppConsoleInputBlocked = true; return; }
     const allPads = bridge.getGamepads().filter(pad => pad && pad.connected !== false);
     const selected = allPads.find(pad => pad.index === window.__ppssppActiveGamepadIndex);
     const pads = selected ? [selected] : allPads;
+    updateInputDiagnostics(pads);
     if (!pads.length && byId('consoleInputStatus').textContent.includes('connected')) byId('consoleInputStatus').textContent = 'Keyboard · Mouse · Touch';
     const indexes = new Set(pads.map(pad => pad.index));
     for (const index of states.keys()) if (!indexes.has(index)) states.delete(index);
-    if (releaseGate && allPads.every(neutral)) releaseGate = false;
+    if (releaseGate && pads.every(neutral)) releaseGate = false;
     window.__ppssppConsoleInputBlocked = !!uiOpen() || releaseGate;
     for (const pad of pads) {
       if (mappingStep) { capture(pad); continue; }
@@ -483,14 +518,14 @@
         states.set(pad.index, { id: pad.id, held: new Set(), repeat: new Map(), ready: neutral(pad), lastPoll: now }); continue;
       }
       if (state.id !== pad.id) { states.delete(pad.index); continue; }
+      for (const name of samplePageInput(state, pad, mapping, uiOpen(), now)) action(name);
       if (!state.ready) { state.ready = neutral(pad); continue; }
       const elapsed = now - (state.lastPoll ?? now); state.lastPoll = now;
       const dashboard = uiOpen();
       const input = readActions(pad, mapping, state.held, dashboard);
       const guide = sampleGuideButton(state, pad.mapping === 'standard' && pressed(pad, 16), now);
-      if (releaseGate) { state.held = input; state.repeat.clear(); delete state.pageClicks; continue; }
+      if (releaseGate) { state.held = input; state.repeat.clear(); continue; }
       const events = sampleActions(state, input, now);
-      events.push(...samplePageButtons(state, pad, mapping, dashboard, now));
       if (guide) events.push(guide);
       if (dashboard) scrollControllerPage(pad, elapsed);
       for (const name of events) {
