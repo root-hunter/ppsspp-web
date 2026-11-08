@@ -157,3 +157,11 @@ test('cancelling a direct download never starts a gateway request', async () => 
 test('download rejects HTML error pages instead of trying to extract them as ZIPs', async () => {
   await assert.rejects(api.download(demoURL, { fetcher: async () => new Response('<html>not a ZIP</html>') }), /Import ZIP/);
 });
+
+test('texture ZIPs can raise the entry limit while ordinary imports keep the demo bound', async () => {
+  const archive = zip(Array.from({ length: 4100 }, (_, i) => ['image' + i + '.png', [i % 256]]), 0);
+  await assert.rejects(api.unzip(archive), /entry count/);
+  const files = await api.unzip(archive, () => {}, { maxEntries: 24000 });
+  assert.equal(files.length, 4100);
+  assert.equal(files[4099].data[0], 4099 % 256);
+});

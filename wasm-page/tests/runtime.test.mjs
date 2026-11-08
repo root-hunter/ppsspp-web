@@ -332,6 +332,7 @@ test('direct game launch also runs library automount before releasing startup', 
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
     preloadAssets: async () => {}, loadPersistedFiles: async () => {}, forceGamesDirectoryConfig: async () => {},
+    restoreTexturePacks: async () => events.push("textures"),
     preloadGame: async () => { events.push('selected'); return '/games/playing.iso'; },
     preloadStoredGames: async () => events.push('automount'), emulatorLaunchArgs: () => [], FS: {},
     failRuntime: message => assert.fail(message),
@@ -340,7 +341,7 @@ test('direct game launch also runs library automount before releasing startup', 
   await ctx.start();
   ctx.Module.preRun[0]();
   await new Promise(r => setTimeout(r, 0));
-  assert.deepEqual(events, ['selected', 'automount', 'ready']);
+  assert.deepEqual(events, ['textures', 'selected', 'automount', 'ready']);
   assert.deepEqual(Array.from(ctx.Module.arguments), ['/games/playing.iso']);
 });
 
@@ -1171,7 +1172,7 @@ test('account backup sends the base revision and keeps it on server rejection', 
 
 test('account namespace isolates guest and distinct user saves', () => {
   const ctx = load(['accountUseProfile'], {
-    _persistedFileState: new Map([['/old', 'fingerprint']]), accountUI: () => {},
+    _persistedFileState: new Map([['/old', 'fingerprint']]), accountUI: () => {}, refreshTexturePacks: async () => {},
   }, 'let serverAccount = null, OPFS_PERSIST_DIR = "persist", _detectedMemstick = "/old";');
   ctx.accountUseProfile({ id: 'alice' });
   assert.equal(vm.runInContext('OPFS_PERSIST_DIR', ctx), 'persist-user-alice');
@@ -1308,4 +1309,39 @@ test('cloud snapshot replacement preserves browser-local RA token and ignores in
   await ctx.accountApplySnapshot({ files: [{ path: '/save', data: 'AQ==' }, { path: secret, data: 'malicious' }] });
   assert.deepEqual(writes, [[secret, [42]], ['/save', [1]]]);
   assert.match(vm.runInContext('OPFS_PERSIST_DIR', ctx), /^persist-user-alice-\d+/);
+});
+
+
+test('managed texture files are excluded from periodic save scanning', () => {
+  const visited = [];
+  const FS = {
+    readdir(path) {
+      visited.push(path);
+      return ({ '/mem': ['PSP'], '/mem/PSP': ['TEXTURES', 'SYSTEM'], '/mem/PSP/SYSTEM': ['ppsspp.ini'] })[path] || [];
+    },
+    stat: path => ({ mode: path.endsWith('.ini') ? 'file' : 'dir', size: 12, mtime: 1 }),
+    isDir: mode => mode === 'dir', isFile: mode => mode === 'file',
+  };
+  const ctx = load(['fsStatDir']);
+  const result = ctx.fsStatDir(FS, '/mem', true);
+  assert.equal(result.size, 1);
+  assert.ok(result.has('/mem/PSP/SYSTEM/ppsspp.ini'));
+  assert.ok(!visited.includes('/mem/PSP/TEXTURES'));
+});
+
+test('texture boot restore enables base config and matching per-game config only', async () => {
+  const writes = new Map();
+  const original = '[Graphics]\nReplaceTextures = False\n';
+  const ctx = load(['restoreTexturePacks', 'patchIniValue'], {
+    persistQueue: Promise.resolve(), hasOPFS: () => true, textureOperation: action => action({}),
+    detectMemstickDir: () => '/mem', dirname: path => path.slice(0, path.lastIndexOf('/')),
+    fsMkdirP() {}, log() {},
+    window: { PPSSPPTextures: { restore: async () => [{ id: 'ULUS10567' }] } },
+  });
+  await ctx.restoreTexturePacks({
+    readFile: path => { assert.ok(path === '/mem/PSP/SYSTEM/ppsspp.ini' || path === '/mem/PSP/SYSTEM/ULUS10567_ppsspp.ini'); return new TextEncoder().encode(original); },
+    writeFile: (path, bytes) => writes.set(path, new TextDecoder().decode(bytes)),
+  });
+  assert.equal(writes.size, 2);
+  for (const text of writes.values()) assert.match(text, /ReplaceTextures = True/);
 });

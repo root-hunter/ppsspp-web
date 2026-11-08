@@ -753,6 +753,7 @@ async function opfsDelete(path) {
 
 async function opfsClearAll() {
   const root = await opfsRoot();
+  await textureOperation(async root => { for await (const [name] of root.entries()) await root.removeEntry(name, { recursive: true }); });
   try { await root.removeEntry(OPFS_PERSIST_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAMES_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAME_META_DIR, { recursive: true }); } catch(e) {}
@@ -840,13 +841,14 @@ function fsWalkDir(FS, root) {
 }
 
 // Walk FS collecting stat info only — no data read, very cheap
-function fsStatDir(FS, root) {
+function fsStatDir(FS, root, excludeTextures = false) {
   const stats = new Map(); // path → {size, mtime}
   function walk(dir) {
     let entries; try { entries = FS.readdir(dir); } catch(e) { return; }
     for (const name of entries) {
       if (name === "." || name === "..") continue;
       const full = dir + "/" + name;
+      if (excludeTextures && full === root + "/PSP/TEXTURES") continue;
       let st; try { st = FS.stat(full); } catch(e) { continue; }
       if      (FS.isDir(st.mode))  walk(full);
       else if (FS.isFile(st.mode)) stats.set(full, { size: st.size, mtime: st.mtime });
@@ -1166,13 +1168,17 @@ async function deleteOpfsFile(path) {
 
 async function updateStorageInfo() {
   try {
+    void refreshTexturePacks();
     const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
     const games   = await opfsWalk(OPFS_GAMES_DIR, "", false);
     const allFiles = [...entries, ...games.map(g => ({ ...g, path: VIRTUAL_GAME_DIR + "/" + g.path }))];
-    const bytes   = allFiles.reduce((s, e) => s + (e.data?.byteLength || e.size || 0), 0);
+    const texturePacks = await textureOperation(root => window.PPSSPPTextures.list(root));
+    const textureBytes = texturePacks.reduce((n, pack) => n + pack.bytes, 0);
+    const textureFiles = texturePacks.reduce((n, pack) => n + pack.files.length, 0);
+    const bytes   = textureBytes + allFiles.reduce((s, e) => s + (e.data?.byteLength || e.size || 0), 0);
     const el = id => document.getElementById(id);
-    el("iStorageFiles").textContent = String(allFiles.length);
-    el("iStorageFiles").className   = allFiles.length ? "info-val good" : "info-val";
+    el("iStorageFiles").textContent = String(allFiles.length + textureFiles);
+    el("iStorageFiles").className   = allFiles.length + textureFiles ? "info-val good" : "info-val";
     el("iStorageSize").textContent  = formatBytes(bytes);
     el("iLastSync").textContent     = _lastPersistTime
       ? new Date(_lastPersistTime).toLocaleTimeString() : "Never";
@@ -2513,7 +2519,7 @@ async function loadPersistedFiles(FS) {
     showToast("✓ Restored " + ok + " saved files");
     // Seed dirty-tracking so the first auto-sync cycle is fully incremental
     _detectedMemstick = detectMemstickDir(FS);
-    const initStats = fsStatDir(FS, _detectedMemstick);
+    const initStats = fsStatDir(FS, _detectedMemstick, true);
     for (const [path, { size, mtime }] of initStats)
       _persistedFileState.set(path, size + ":" + mtime);
   } catch(e) {
@@ -2917,7 +2923,7 @@ function persistFiles(FS, label) {
 async function persistFilesNow(FS, label) {
   if (!FS || !hasOPFS()) return;
   _detectedMemstick = detectMemstickDir(FS);
-  const currentStats = fsStatDir(FS, _detectedMemstick);
+  const currentStats = fsStatDir(FS, _detectedMemstick, true);
 
   if (!currentStats.size) {
     log("Persistence" + (label ? " [" + label + "]" : "") + ": nothing at " + _detectedMemstick, "dim");
@@ -5290,6 +5296,7 @@ async function start() {
           showLoading("Restoring saves\u2026");
           await loadPersistedFiles(FS);
           await forceGamesDirectoryConfig(FS);
+          await restoreTexturePacks(FS);
           gameArg = await preloadGame(FS);
           await preloadStoredGames(FS);
           Module.arguments.length = 0;
@@ -5890,6 +5897,7 @@ function accountUseProfile(user) {
   OPFS_PERSIST_DIR = user ? "persist-user-" + user.id : "persist";
   _persistedFileState.clear(); _detectedMemstick = null;
   accountUI();
+  void refreshTexturePacks();
 }
 async function accountBundle() {
   const files = await opfsWalk();
@@ -6343,3 +6351,128 @@ if (byId("achievementsEnabled")) {
   renderAchievements();
   setInterval(() => { if (byId("tabAchievements")?.classList.contains("active")) renderAchievements(); }, 1000);
 }
+
+
+// Texture packs are immutable local assets, separate from save/cloud snapshots.
+// A Web Lock covers reads and commits across tabs, while persistQueue coordinates boot.
+function textureProfile() {
+  return serverAccount ? "textures-user-" + serverAccount.id : "textures";
+}
+let textureFallbackQueue = Promise.resolve();
+async function textureOperation(action, profile = textureProfile()) {
+  const run = async () => action(await (await opfsRoot()).getDirectoryHandle(profile, { create: true }));
+  if (navigator.locks?.request) return navigator.locks.request("ppsspp-" + profile, run);
+  const task = textureFallbackQueue.then(run);
+  textureFallbackQueue = task.catch(() => {});
+  return task;
+}
+async function refreshTexturePacks() {
+  const list = byId("texturePackList");
+  if (!list) return;
+  const profile = textureProfile();
+  try {
+    const packs = await textureOperation(root => window.PPSSPPTextures.list(root), profile);
+    if (profile !== textureProfile()) return;
+    list.replaceChildren();
+    for (const pack of packs) {
+      const row = document.createElement("div");
+      row.className = "action-row";
+      const label = document.createElement("span");
+      label.textContent = pack.id + " · " + pack.files.length + " files · " + formatBytes(pack.bytes);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Remove " + pack.id;
+      button.addEventListener("click", async () => {
+        if (!await confirmUI("Remove replacement textures for " + pack.id + "? Restart the emulator to apply.")) return;
+        if (profile !== textureProfile()) return;
+        await runTextureTask(() => textureOperation(root => window.PPSSPPTextures.remove(root, pack.id), profile));
+      });
+      row.append(label, button);
+      list.append(row);
+    }
+    if (!packs.length) list.textContent = "No texture packs installed.";
+  } catch (error) {
+    list.textContent = "Texture storage unavailable: " + error.message;
+  }
+}
+let textureBusy = false;
+async function runTextureTask(action) {
+  if (textureBusy) return;
+  textureBusy = true;
+  const status = byId("textureStatus");
+  const controls = [byId("textureZipInput"), byId("textureFolderInput"), byId("textureGameID")];
+  controls.forEach(node => { if (node) node.disabled = true; });
+  const task = persistQueue.then(action);
+  persistQueue = task.catch(() => {});
+  try {
+    await task;
+    status.textContent = "Texture packs saved. Restart the emulator to apply the changes.";
+    showToast(status.textContent, 7000);
+  } catch (error) {
+    status.textContent = "Texture operation failed: " + error.message;
+    log(status.textContent, "err");
+  } finally {
+    textureBusy = false;
+    controls.forEach(node => { if (node) node.disabled = false; });
+    await refreshTexturePacks();
+    void updateStorageInfo();
+  }
+}
+async function importTexturePack(files, zipped) {
+  if (!files.length || textureBusy) return;
+  const profile = textureProfile();
+  const selectedID = byId("textureGameID").value;
+  await runTextureTask(async () => {
+    const id = window.PPSSPPTextures.gameID(selectedID);
+    const status = byId("textureStatus");
+    status.textContent = "Checking texture pack…";
+    let entries;
+    if (zipped) {
+      if (files[0].size > window.PPSSPPTextures.MAX_BYTES) throw new Error("ZIP exceeds 512 MiB");
+      entries = await window.PPSSPPDemos.unzip(new Uint8Array(await files[0].arrayBuffer()), event => {
+        status.textContent = "Extracting textures: " + formatBytes(event.completed) + " / " + formatBytes(event.total);
+      }, { maxEntries: 24000 });
+    } else {
+      entries = files.map(file => ({ name: file.webkitRelativePath, file }));
+    }
+    const plan = window.PPSSPPTextures.prepare(entries, id);
+    if (profile !== textureProfile()) throw new Error("The browser profile changed. Import the pack again.");
+    await textureOperation(async root => {
+      const existing = await window.PPSSPPTextures.list(root);
+      if (existing.some(pack => pack.id === id) && !await confirmUI("Replace all installed textures for " + id + "?")) {
+        throw new Error("Replacement cancelled; the installed pack is unchanged.");
+      }
+      await window.PPSSPPTextures.install(root, plan, (done, total) => {
+        status.textContent = "Saving textures: " + done + " / " + total;
+      });
+    }, profile);
+  });
+}
+on("textureZipInput", "change", async event => {
+  const files = Array.from(event.target.files || []);
+  try { await importTexturePack(files, true); } finally { event.target.value = ""; }
+});
+on("textureFolderInput", "change", async event => {
+  const files = Array.from(event.target.files || []);
+  try { await importTexturePack(files, false); } finally { event.target.value = ""; }
+});
+async function restoreTexturePacks(FS) {
+  await persistQueue;
+  if (!hasOPFS()) return;
+  await textureOperation(async root => {
+    const memstick = detectMemstickDir(FS);
+    const packs = await window.PPSSPPTextures.restore(root, FS, memstick);
+    if (!packs.length) return;
+    // Enable replacement in the base config and existing per-game overrides.
+    for (const name of ["ppsspp.ini", ...packs.map(pack => pack.id + "_ppsspp.ini")]) {
+      const path = memstick + "/PSP/SYSTEM/" + name;
+      let text;
+      try { text = new TextDecoder().decode(FS.readFile(path)); }
+      catch (error) { if (name !== "ppsspp.ini") continue; text = ""; }
+      fsMkdirP(FS, dirname(path));
+      FS.writeFile(path, new TextEncoder().encode(patchIniValue(text, "Graphics", "ReplaceTextures", "True")));
+    }
+    log("Restored " + packs.length + " replacement texture packs.", "ok");
+  });
+}
+void refreshTexturePacks();

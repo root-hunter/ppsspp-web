@@ -63,7 +63,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-08-retroachievements-v1';
+const RUNTIME_ASSET_VERSION = '2026-11-08-textures-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -79,6 +79,7 @@ export class PpssppRuntime {
     createIcons({ icons: PPSSPP_ICONS });
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`demo-library.js?v=${RUNTIME_ASSET_VERSION}`, 'demo-library');
+    await this.loadScript(`texture-packs.js?v=${RUNTIME_ASSET_VERSION}`, 'texture-packs');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
     await this.loadScript(`console-ui.js?v=${RUNTIME_ASSET_VERSION}`, 'console-ui');
     await this.loadScript(`shared-sessions.js?v=${RUNTIME_ASSET_VERSION}`, 'shared-sessions');

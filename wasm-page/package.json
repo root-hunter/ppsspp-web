@@ -9,7 +9,7 @@
     "build": "ng build",
     "build:pages": "ng build --configuration production --base-href ./",
     "watch": "ng build --watch --configuration development",
-    "test": "node tests/demo-library.test.mjs && node tests/runtime.test.mjs && node tests/adhoc-transport.test.mjs && node tests/console-ui.test.mjs"
+    "test": "node tests/demo-library.test.mjs && node tests/texture-packs.test.mjs && node tests/runtime.test.mjs && node tests/adhoc-transport.test.mjs && node tests/console-ui.test.mjs"
   },
   "dependencies": {
     "@angular/common": "22.2.3",

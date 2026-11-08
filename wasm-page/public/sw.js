@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v37-retroachievements";
+const CACHE_VERSION = "ppsspp-angular-v38-textures";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -19,6 +19,7 @@ const SHELL_FILES = [
   "./ppsspp-runtime.js",
   "./console-ui.js",
   "./demo-library.js",
+  "./texture-packs.js",
   "./demo-catalog.json",
   "./adhoc-transport.js",
   "./shared-sessions.js",
@@ -69,6 +70,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/console-ui.js") ||
                   pathname.endsWith("/shared-sessions.js") ||
                   pathname.endsWith("/demo-library.js") ||
+                  pathname.endsWith("/texture-packs.js") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");
 

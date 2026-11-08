@@ -225,6 +225,12 @@ checkout path or toolchain installation. Development builds also keep LTO disabl
 A successful compile or emulator UI startup does not establish game-launch
 stability. Re-enabling LTO requires reproducing and resolving the reported freeze.
 
+## Replacement textures
+
+Import texture ZIPs or game ID folders from **Storage → Replacement textures**.
+Packs persist locally per browser profile and load after restarting the emulator.
+See [supported layouts, limits and storage behavior](docs/texture-packs.md).
+
 ## RetroAchievements
 
 The Achievements tab connects to the native PPSSPP achievement engine. Rebuild

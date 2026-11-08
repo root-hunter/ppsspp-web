@@ -56,7 +56,7 @@
     if (!path || path.includes('\\') || path.startsWith('/') || path.includes(':') || /[\x00-\x1f]/.test(path) || path.split('/').some(p => p === '..' || p === '.')) throw new Error('Unsafe ZIP path');
     return path;
   }
-  async function unzip(input, onProgress = () => {}) {
+  async function unzip(input, onProgress = () => {}, { maxEntries = 4096 } = {}) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (bytes.length > MAX_BYTES) throw new Error('ZIP exceeds 512 MB');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -66,7 +66,7 @@
     }
     if (end < 0 || end < bytes.length - 65557) throw new Error('Invalid ZIP directory');
     const count = view.getUint16(end + 10, true);
-    if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true) || count !== view.getUint16(end + 8, true) || count > 4096) throw new Error('Unsupported ZIP volume or entry count');
+    if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true) || count !== view.getUint16(end + 8, true) || count > Math.min(maxEntries, 24000)) throw new Error('Unsupported ZIP volume or entry count');
     let offset = view.getUint32(end + 16, true), total = 0;
     const directoryEnd = offset + view.getUint32(end + 12, true);
     if (directoryEnd > end) throw new Error('Invalid ZIP directory bounds');

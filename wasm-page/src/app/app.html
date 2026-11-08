@@ -354,6 +354,17 @@
             <div class="info-row"><span class="info-key">Auto-sync</span>    <span class="info-val good">Every 30 s</span></div>
             <div class="info-row"><span class="info-key">Persist Path</span> <span class="info-val path-val" id="iMemstickPath">&#8212;</span></div>
           </div>
+          <section class="info-group">
+            <h2>Replacement textures</h2>
+            <label class="form-field" for="textureGameID">Game ID<input id="textureGameID" type="text" placeholder="ULUS10567" maxlength="9" autocapitalize="characters" spellcheck="false"></label>
+            <p class="field-help">Use the ID matching your game's region. Import a ZIP or select the game ID folder inside PSP/TEXTURES. Packs with images and textures.ini directly at the ZIP root are also supported. Up to 20,000 files per pack; 512 MiB total installed.</p>
+            <div class="action-row">
+              <label class="btn">Import texture ZIP<input id="textureZipInput" type="file" accept=".zip"></label>
+              <label class="btn">Import texture folder<input id="textureFolderInput" type="file" webkitdirectory multiple></label>
+            </div>
+            <p id="textureStatus" class="field-help" role="status" aria-live="polite">Textures are stored in this browser profile. Restart the emulator after importing or removing a pack.</p>
+            <div id="texturePackList"></div>
+          </section>
           <div class="storage-actions">
             <button id="syncNowBtn"><i data-lucide="save"></i> Sync now</button>
             <button id="clearStorageBtn" class="danger"><i data-lucide="trash-2"></i> Clear All Saved Data</button>
