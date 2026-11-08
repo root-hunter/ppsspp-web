@@ -294,7 +294,7 @@ test('failed preload never releases the dependency and starts the core without i
   const failures = [], removed = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
-    installSharedCanvasContext() {},
+    installSharedCanvasContext() {}, achievementsGateway: () => "https://localhost/api/retroachievements",
     accountBusy: false, accountBlocked: false, serverAccount: null, accountBoot: Promise.resolve(), accountAcquirePlayLock: async () => {},
     ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
@@ -321,7 +321,7 @@ test('direct game launch also runs library automount before releasing startup', 
   const events = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
-    installSharedCanvasContext() {},
+    installSharedCanvasContext() {}, achievementsGateway: () => "https://localhost/api/retroachievements",
     accountBusy: false, accountBlocked: false, serverAccount: null, accountBoot: Promise.resolve(), accountAcquirePlayLock: async () => {},
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
@@ -445,6 +445,7 @@ test('startup preserves saved graphics, timing, audio and touch settings across 
         loadNetworkConfig: () => ({ enabled: false }),
         preferences: { getItem: () => legacyProfile },
         applyNetworkConfig: async (_, text) => text,
+        achievementsConfig: () => ({ enabled: false, hardcore: false }),
         syncGameNetworkNicknames: async () => {},
         opfsPut: async () => {}, log() {},
       }, declarations);
@@ -1183,7 +1184,8 @@ test('account namespace isolates guest and distinct user saves', () => {
 
 test('failed staged account restore preserves the original profile', async () => {
   const removed = [];
-  const ctx = load(['accountApplySnapshot'], {
+  const ctx = load(['accountApplySnapshot', 'isLocalSecret'], {
+    opfsWalk: async () => [],
     serverAccount: { id: 'alice' },
     opfsRoot: async () => ({ removeEntry: async name => removed.push(name) }),
     opfsParent: async () => ({ name: 'DATA.BIN', dir: { getFileHandle: async () => ({}) } }),
@@ -1244,4 +1246,66 @@ test('same-browser account play lock rejects a second running tab', async () => 
   }, 'let accountPlayLock = false;');
   await assert.rejects(ctx.accountAcquirePlayLock(), /already playing in another tab/);
   assert.equal(vm.runInContext('accountPlayLock', ctx), false);
+});
+
+test('RetroAchievements settings default to opt-in and gateways require secure URLs', () => {
+  const ctx = load(['achievementsConfig', 'achievementsGateway'], {
+    URL, location: { href: 'https://example.test/psp/' }, preferences: { getItem: () => '{broken' },
+  });
+  assert.equal(ctx.achievementsConfig().enabled, false);
+  assert.equal(ctx.achievementsConfig().hardcore, false);
+  assert.equal(ctx.achievementsGateway(''), 'https://example.test/api/retroachievements');
+  assert.equal(ctx.achievementsGateway('http://localhost:8081/api/retroachievements'), 'http://localhost:8081/api/retroachievements');
+  for (const url of ['http://relay.example/api/retroachievements', 'https://user:pass@relay.example/api/retroachievements',
+    'https://relay.example/api/retroachievements?token=secret', 'javascript:alert(1)']) {
+    assert.throws(() => ctx.achievementsGateway(url), /HTTPS/);
+  }
+});
+
+test('RetroAchievements bridge reports outdated builds and forwards credentials only to native login', () => {
+  const calls = [];
+  const module = { _PPSSPP_AchievementsLogin() {}, ccall: (...args) => calls.push(args) };
+  const ctx = load(['achievementsNative'], { window: { Module: module }, runtimeReady: false });
+  assert.throws(() => ctx.achievementsNative('Login'), /updated PPSSPP/);
+  ctx.runtimeReady = true;
+  ctx.achievementsNative('Login', ['string', 'string'], ['alice', 'secret']);
+  assert.equal(calls[0][0], 'PPSSPP_AchievementsLogin');
+  assert.deepEqual(calls[0][3], ['alice', 'secret']);
+  assert.throws(() => ctx.achievementsNative('Settings'), /updated PPSSPP/);
+});
+
+test('RetroAchievements token is excluded from account and exported save bundles', async () => {
+  const secret = '/home/web_user/.config/ppsspp/PSP/SYSTEM/ppsspp_retroachievements.dat';
+  const save = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/GAME/DATA.BIN';
+  const entries = [{ path: secret, data: new Uint8Array([42]) }, { path: save, data: new Uint8Array([1]) }];
+  const ctx = load(['isLocalSecret', 'accountBundle', 'buildSaveFileMap'], {
+    opfsWalk: async () => entries, bytesToBase64: () => 'AQ==', window: { FS: null },
+  });
+  assert.equal(ctx.isLocalSecret(secret), true);
+  assert.equal(ctx.isLocalSecret(save), false);
+  assert.deepEqual(Array.from((await ctx.accountBundle()).files, f => f.path), [save]);
+  assert.deepEqual(Array.from((await ctx.buildSaveFileMap()).keys()), [save]);
+});
+
+test('RetroAchievements API and image responses never enter the service worker cache', () => {
+  let handler;
+  serviceWorker({ self: { location: { origin: 'https://example.test' }, addEventListener: (name, fn) => { if (name === 'fetch') handler = fn; } } });
+  handler({ request: new Request('https://example.test/api/retroachievements?url=badge.png'), respondWith: () => assert.fail('RA must use network only') });
+});
+
+test('cloud snapshot replacement preserves browser-local RA token and ignores incoming secrets', async () => {
+  const secret = '/home/web_user/.config/ppsspp/PSP/SYSTEM/ppsspp_retroachievements.dat';
+  const writes = [];
+  const ctx = load(['accountApplySnapshot', 'isLocalSecret'], {
+    serverAccount: { id: 'alice' },
+    opfsRoot: async () => ({ getDirectoryHandle: async () => ({}) }),
+    opfsWalk: async () => [{ path: secret, data: new Uint8Array([42]) }],
+    opfsParent: async path => ({ name: path, dir: { getFileHandle: async name => ({ name }) } }),
+    base64ToBytes: () => new Uint8Array([1]),
+    writeOpfsHandle: async (handle, bytes) => writes.push([handle.name, Array.from(bytes)]),
+    preferences: { setItem() {}, getItem: () => null },
+  }, 'let OPFS_PERSIST_DIR = "persist-user-alice-original";');
+  await ctx.accountApplySnapshot({ files: [{ path: '/save', data: 'AQ==' }, { path: secret, data: 'malicious' }] });
+  assert.deepEqual(writes, [[secret, [42]], ['/save', [1]]]);
+  assert.match(vm.runInContext('OPFS_PERSIST_DIR', ctx), /^persist-user-alice-\d+/);
 });

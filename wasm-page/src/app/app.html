@@ -94,6 +94,7 @@
         <button type="button" class="tab" data-tab="server"><i data-lucide="server"></i> Server</button>
         <button type="button" class="tab" data-tab="drive"><i data-lucide="cloud"></i> Drive</button>
         <button type="button" class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> Storage</button>
+        <button type="button" class="tab" data-tab="achievements"><i data-lucide="award"></i> Achievements</button>
         <button type="button" class="tab"        data-tab="info"><i data-lucide="settings"></i> System</button>
         <button type="button" class="tab"        data-tab="log"><i data-lucide="terminal"></i> Logs</button>
         <button type="button" class="tab"        data-tab="about"><i data-lucide="info"></i> About</button>
@@ -360,6 +361,31 @@
         </div>
         <div class="panel-section-label">Persisted Files</div>
         <div id="opfsFileList"><span class="empty-row">Loading&hellip;</span></div>
+      </div>
+
+      <div class="tab-panel" id="tabAchievements">
+        <div class="settings-panel">
+          <div class="section-heading"><h1>RetroAchievements</h1></div>
+          <p class="about-text">Earn achievements with your RetroAchievements account. Game recognition, progress and unlocks are handled by PPSSPP.</p>
+          <form id="achievementsSettings" class="info-group">
+            <label class="menu-motion-setting"><input id="achievementsEnabled" type="checkbox"> Enable RetroAchievements</label>
+            <label class="menu-motion-setting"><input id="achievementsHardcore" type="checkbox"> Hardcore mode</label>
+            <label class="form-field" for="achievementsGateway">Gateway URL (optional)<input id="achievementsGateway" type="url" placeholder="https://your-relay/api/retroachievements"></label>
+            <p class="field-help">Leave empty when using the local server. For static hosting, enter your trusted relay gateway. Sign-in credentials pass through this server over HTTPS.</p>
+            <button id="achievementsSave" type="submit">Save settings</button>
+          </form>
+          <form id="achievementsLoginForm" class="info-group">
+            <div class="settings-fields">
+              <label class="form-field" for="achievementsUsername">Username<input id="achievementsUsername" autocomplete="username" maxlength="256" required></label>
+              <label class="form-field" for="achievementsPassword">Password<input id="achievementsPassword" type="password" autocomplete="current-password" maxlength="1024" required></label>
+            </div>
+            <div class="action-row"><button id="achievementsLogin" type="submit" disabled>Sign in</button><button id="achievementsLogout" type="button" disabled>Sign out</button><a href="https://retroachievements.org/createaccount.php" target="_blank" rel="noopener noreferrer">Create account</a></div>
+            <p id="achievementsStatus" class="field-help" role="status" aria-live="polite"></p>
+            <p class="field-help">Your password is used only to sign in. PPSSPP remembers a login token in this browser profile.</p>
+            <p id="achievementsSessionHelp" class="field-help"></p>
+          </form>
+          <section class="info-group"><h2>Current game</h2><p id="achievementsGame" role="status"></p><ul id="achievementsList" class="achievement-list"></ul></section>
+        </div>
       </div>
 
       <div class="tab-panel" id="tabInfo">

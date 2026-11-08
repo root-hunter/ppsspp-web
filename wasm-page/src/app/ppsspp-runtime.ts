@@ -3,6 +3,7 @@ import { DOCUMENT } from '@angular/common';
 import { Injectable, inject } from '@angular/core';
 import {
   Activity,
+  Award,
   Cloud,
   Download,
   Eye,
@@ -34,6 +35,7 @@ import {
 
 const PPSSPP_ICONS = {
   Activity,
+  Award,
   Cloud,
   Download,
   Eye,
@@ -61,7 +63,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-08-server-accounts-v1';
+const RUNTIME_ASSET_VERSION = '2026-11-08-retroachievements-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

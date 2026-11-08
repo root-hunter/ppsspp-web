@@ -16,7 +16,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY server/serve.py server/relay.py server/relay_auth.py server/relay_admin.py server/shared_sessions.py server/demo_archive.py server/accounts.py server/account_admin.py ./server/
+COPY server/serve.py server/relay.py server/relay_auth.py server/relay_admin.py server/shared_sessions.py server/demo_archive.py server/retroachievements.py server/accounts.py server/account_admin.py ./server/
 COPY --from=web-build /web/dist/ppsspp-web ./wasm-page/dist/ppsspp-web
 
 WORKDIR /app/server

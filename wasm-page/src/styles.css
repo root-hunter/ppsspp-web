@@ -677,3 +677,8 @@ button.demo-activity { gap: 7px; border-color: #b0dcd64d; color: var(--accent2);
 .shared-player.is-fullscreen .shared-player-footer { bottom:0; }
 .shared-player.is-fullscreen.hud-open .shared-player-toolbar, .shared-player.is-fullscreen.hud-open .shared-player-footer { opacity:1; pointer-events:auto; }
 .shared-player.is-fullscreen.hud-open .shared-hud-toggle { top:auto; bottom:max(48px,calc(env(safe-area-inset-bottom) + 40px)); }
+
+.achievement-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.achievement-list li { padding: 12px; border: 1px solid var(--border, #ffffff24); border-radius: 8px; }
+.achievement-list p { margin: 6px 0 0; opacity: .75; }
+.achievement-unlocked { border-color: #7acb92 !important; }

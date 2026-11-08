@@ -2053,11 +2053,15 @@ function readSaveSlotFiles(FS, slotDir) {
 }
 
 // Build a unified file map from OPFS + live FS (FS takes priority as it's fresher)
+function isLocalSecret(path) {
+  return /\/PSP\/SYSTEM\/ppsspp_retroachievements\.dat$/i.test(path);
+}
+
 async function buildSaveFileMap() {
   const opfsEntries = await opfsWalk();
   const map = new Map(); // path → {path, data, size, fromOPFS}
   for (const { path, data, size } of opfsEntries) {
-    map.set(path, { path, data, size: data?.byteLength || size || 0, fromOPFS: true });
+    if (!isLocalSecret(path)) map.set(path, { path, data, size: data?.byteLength || size || 0, fromOPFS: true });
   }
   // Overlay with live FS if running (newer / authoritative)
   const FS = window.FS;
@@ -2065,7 +2069,7 @@ async function buildSaveFileMap() {
     const memstick = _detectedMemstick || detectMemstickDir(FS);
     const fsFiles  = fsWalkDir(FS, memstick);
     for (const { path, data } of fsFiles) {
-      map.set(path, { path, data, size: data?.byteLength || 0, fromOPFS: false });
+      if (!isLocalSecret(path)) map.set(path, { path, data, size: data?.byteLength || 0, fromOPFS: false });
     }
   }
   return map;
@@ -2875,6 +2879,9 @@ async function forceGamesDirectoryConfig(FS) {
       try { text = decoder.decode(FS.readFile(iniPath)); } catch(e) {}
       let patched = patchIniValue(text, "General", "CurrentDirectory", VIRTUAL_GAME_DIR);
       patched = await applyNetworkConfig(FS, patched);
+      const ra = achievementsConfig();
+      patched = patchIniValue(patched, "Achievements", "AchievementsEnable", ra.enabled ? "True" : "False");
+      patched = patchIniValue(patched, "Achievements", "AchievementsChallengeMode", ra.hardcore ? "True" : "False");
       for (const [section, key, value] of WEB_NATIVE_TIMING_CONFIG) {
         patched = patchIniValue(patched, section, key, value, false);
       }
@@ -5077,6 +5084,7 @@ function activatePanelTab(tabName) {
   if (name === "library") refreshLibrary();
   if (name === "saves") refreshSavesTab();
   if (name === "drive") initDriveConfigUI();
+  if (name === "achievements") renderAchievements();
   if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
   updateCollectionPageStatus();
 }
@@ -5240,6 +5248,7 @@ async function start() {
 
   installSharedCanvasContext(canvas);
   window.Module = {
+    retroAchievementsProxy: achievementsGateway(),
     canvas,
     webglContextAttributes: {
       powerPreference: chosenPowerPref,
@@ -5884,7 +5893,7 @@ function accountUseProfile(user) {
 }
 async function accountBundle() {
   const files = await opfsWalk();
-  return { version: 1, files: files.map(({ path, data }) => ({ path, data: bytesToBase64(data) })).sort((a, b) => a.path.localeCompare(b.path)) };
+  return { version: 1, files: files.filter(file => !isLocalSecret(file.path)).map(({ path, data }) => ({ path, data: bytesToBase64(data) })).sort((a, b) => a.path.localeCompare(b.path)) };
 }
 async function accountHash(bundle) {
   const normalized = bundle.files.map(({ path, data }) => ({ path, data })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
@@ -5902,7 +5911,14 @@ async function accountApplySnapshot(bundle) {
   const previous = OPFS_PERSIST_DIR;
   const root = await opfsRoot();
   try {
+    // Preserve browser-local credentials when replacing the cloud save snapshot.
+    const localSecrets = (await opfsWalk()).filter(file => isLocalSecret(file.path));
+    for (const { path, data } of localSecrets) {
+      const { dir, name } = await opfsParent(path, true, stage);
+      await writeOpfsHandle(await dir.getFileHandle(name, { create: true }), data);
+    }
     for (const { path, data } of bundle.files) {
+      if (isLocalSecret(path)) continue;
       const { dir, name } = await opfsParent(path, true, stage);
       await writeOpfsHandle(await dir.getFileHandle(name, { create: true }), base64ToBytes(data));
     }
@@ -6218,3 +6234,112 @@ window.PPSSPPSharedBridge = {
     try { canvas.dispatchEvent(event); } finally { window.__ppssppRemoteKey = false; }
   },
 };
+
+/* ── RetroAchievements: native rc_client bridge ─────────────────── */
+function achievementsConfig() {
+  try {
+    const value = JSON.parse(preferences.getItem("ppsspp_achievements") || "{}");
+    return { enabled: value.enabled === true, hardcore: value.hardcore === true, gateway: String(value.gateway || "") };
+  } catch (_) { return { enabled: false, hardcore: false, gateway: "" }; }
+}
+function achievementsGateway(value = achievementsConfig().gateway) {
+  const url = new URL(value || "/api/retroachievements", location.href);
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) || url.username || url.password || url.search || url.hash)
+    throw new Error("Use an HTTPS gateway URL without credentials, query or fragment.");
+  return url.href.replace(/\/$/, "");
+}
+function achievementsNative(name, types = [], values = []) {
+  const module = window.Module;
+  if (!runtimeReady || typeof module?.["_PPSSPP_Achievements" + name] !== "function")
+    throw new Error("Start an updated PPSSPP WASM build to use RetroAchievements.");
+  module.ccall("PPSSPP_Achievements" + name, null, types, values);
+}
+let achievementsSignature = "", achievementsPersistSignature = "", achievementsStateSignature = "";
+function renderAchievements() {
+  if (menuSuspended && runtimeReady) window.Module?._PPSSPP_AchievementsPoll?.();
+  const state = window.Module?.retroAchievementsState;
+  const status = byId("achievementsStatus");
+  if (!status) return;
+  const available = runtimeReady && typeof window.Module?._PPSSPP_AchievementsLogin === "function";
+  const locked = !!state?.inGame || !!state?.busy || (started && !available);
+  const cfg = achievementsConfig();
+  byId("achievementsEnabled").disabled = locked;
+  byId("achievementsHardcore").disabled = locked;
+  byId("achievementsSave").disabled = locked;
+  byId("achievementsLogin").disabled = !available || !state?.enabled || locked || !!state?.loggedIn;
+  byId("achievementsLogout").disabled = !available || locked || !state?.loggedIn;
+  byId("achievementsUsername").disabled = locked || !!state?.loggedIn;
+  byId("achievementsPassword").disabled = locked || !!state?.loggedIn;
+  byId("achievementsGateway").disabled = started;
+  const stateSignature = JSON.stringify([state?.enabled, state?.hardcore, state?.username]);
+  if (state && stateSignature !== achievementsStateSignature) {
+    achievementsStateSignature = stateSignature;
+    byId("achievementsEnabled").checked = state.enabled;
+    byId("achievementsHardcore").checked = state.hardcore;
+    if (document.activeElement !== byId("achievementsUsername")) byId("achievementsUsername").value = state.username || "";
+    const nextCfg = { ...cfg, enabled: state.enabled, hardcore: state.hardcore };
+    preferences.setItem("ppsspp_achievements", JSON.stringify(nextCfg));
+  }
+  if (state) {
+    const signature = JSON.stringify([state.enabled, state.hardcore, state.loggedIn, state.username]);
+    if (signature !== achievementsPersistSignature) {
+      achievementsPersistSignature = signature;
+      if (window.FS) void persistFiles(window.FS, "achievements");
+    }
+  }
+  status.textContent = !available ? (started ? "This WASM build needs the RetroAchievements update." : "Save your settings, then start PPSSPP without a game to sign in.")
+    : state?.busy ? "Contacting RetroAchievements…"
+    : state?.loginError ? "Sign-in failed. Check your credentials, gateway and internet connection."
+    : state?.loggedIn ? "Connected as " + state.username + (state.hardcoreActive ? " · Hardcore active" : " · Softcore")
+    : state?.enabled ? "Sign in with your RetroAchievements account." : "RetroAchievements is disabled.";
+  byId("achievementsSessionHelp").textContent = state?.inGame
+    ? "Return to the PPSSPP game browser before changing the account or mode. Restart the game after signing in."
+    : "Hardcore disables save-state loading, cheats and slowdown through the emulator. Start the game after signing in.";
+  const signature = JSON.stringify([state?.gameId, state?.game, state?.unlocked, state?.points, state?.achievements]);
+  if (signature === achievementsSignature) return;
+  achievementsSignature = signature;
+  byId("achievementsGame").textContent = state?.game ? `${state.game} · ${state.unlocked}/${state.total} unlocked · ${state.points} points`
+    : state?.inGame && state?.loggedIn && !state?.busy ? "No achievement set identified for this game." : "Start a supported game to see its achievements.";
+  const list = byId("achievementsList");
+  list.replaceChildren();
+  for (const item of state?.achievements || []) {
+    const row = document.createElement("li");
+    const title = document.createElement("strong"), description = document.createElement("p");
+    title.textContent = `${item.unlocked ? "✓ " : ""}${item.title} · ${item.points} points`;
+    description.textContent = item.description + (!item.unlocked && item.progress ? " · " + item.progress : "");
+    row.append(title, description);
+    row.classList.toggle("achievement-unlocked", item.unlocked);
+    list.append(row);
+  }
+}
+on("achievementsSettings", "submit", event => {
+  event.preventDefault();
+  try {
+    const gateway = achievementsGateway(byId("achievementsGateway").value.trim());
+    const cfg = { enabled: byId("achievementsEnabled").checked, hardcore: byId("achievementsHardcore").checked, gateway };
+    if (runtimeReady) achievementsNative("Settings", ["number", "number"], [Number(cfg.enabled), Number(cfg.hardcore)]);
+    preferences.setItem("ppsspp_achievements", JSON.stringify(cfg));
+    byId("achievementsStatus").textContent = "Settings saved.";
+  } catch (error) { byId("achievementsStatus").textContent = error.message; }
+});
+on("achievementsLoginForm", "submit", event => {
+  event.preventDefault();
+  const password = byId("achievementsPassword");
+  try {
+    achievementsNative("Login", ["string", "string"], [byId("achievementsUsername").value.trim(), password.value]);
+    byId("achievementsStatus").textContent = "Signing in…";
+  } catch (error) { byId("achievementsStatus").textContent = error.message; }
+  finally { password.value = ""; }
+});
+on("achievementsLogout", "click", () => {
+  try { achievementsNative("Logout"); }
+  catch (error) { byId("achievementsStatus").textContent = error.message; }
+});
+const initialAchievements = achievementsConfig();
+if (byId("achievementsEnabled")) {
+  byId("achievementsEnabled").checked = initialAchievements.enabled;
+  byId("achievementsHardcore").checked = initialAchievements.hardcore;
+  byId("achievementsGateway").value = initialAchievements.gateway;
+  renderAchievements();
+  setInterval(() => { if (byId("tabAchievements")?.classList.contains("active")) renderAchievements(); }, 1000);
+}

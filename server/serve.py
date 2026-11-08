@@ -12,6 +12,7 @@ from functools import partial
 
 from accounts import Accounts, serve_accounts
 from demo_archive import serve_demo_archive
+from retroachievements import serve_retroachievements
 from relay_auth import RelayAuth
 from relay import AdhocWebSocketHandler, ThreadingAdhocWebSocketServer, TrackedServerMixin
 
@@ -54,6 +55,8 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if serve_accounts(self):
             return
+        if serve_retroachievements(self):
+            return
         if serve_demo_archive(self):
             return
         if path == "/healthz":
@@ -88,7 +91,11 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if not serve_accounts(self):
+        if not serve_retroachievements(self) and not serve_accounts(self):
+            self.send_error(404)
+
+    def do_OPTIONS(self):
+        if not serve_retroachievements(self):
             self.send_error(404)
 
     do_PUT = do_POST

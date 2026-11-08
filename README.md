@@ -225,6 +225,11 @@ checkout path or toolchain installation. Development builds also keep LTO disabl
 A successful compile or emulator UI startup does not establish game-launch
 stability. Re-enabling LTO requires reproducing and resolving the reported freeze.
 
+## RetroAchievements
+
+The Achievements tab connects to the native PPSSPP achievement engine. Rebuild
+the core and shell; see [setup, gateway and validation](docs/retroachievements.md).
+
 ## Shared Sessions
 
 Stream game audio/video to guests in the same relay room, optionally assigning remote keyboard/gamepad control without a guest game download. Setup, permissions, limitations and tests: [docs/shared-sessions.md](docs/shared-sessions.md).

@@ -12,3 +12,5 @@ wasm-page/node_modules/
 !server/demo_archive.py
 !server/accounts.py
 !server/account_admin.py
+
+!server/retroachievements.py
