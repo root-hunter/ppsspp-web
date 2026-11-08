@@ -295,6 +295,7 @@ test('failed preload never releases the dependency and starts the core without i
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
     installSharedCanvasContext() {},
+    accountBusy: false, accountBlocked: false, serverAccount: null, accountBoot: Promise.resolve(), accountAcquirePlayLock: async () => {},
     ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
@@ -321,6 +322,7 @@ test('direct game launch also runs library automount before releasing startup', 
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
     installSharedCanvasContext() {},
+    accountBusy: false, accountBlocked: false, serverAccount: null, accountBoot: Promise.resolve(), accountAcquirePlayLock: async () => {},
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
@@ -1119,4 +1121,127 @@ test('remote screen touches preserve multiple fingers, positions and release eve
   ctx.applySharedTouches([]);
   assert.equal(events[3].type,'touchend'); assert.equal(events[3].touches.length,0);
   assert.equal(touches.size,0); assert.equal(window.__ppssppRemoteTouch,false);
+});
+
+test('account save conflict blocks preparation without replacing either copy', async () => {
+  let applied = false;
+  const ctx = load(['accountPrepare'], {
+    accountRequest: async () => ({ json: async () => ({ revision: 2, bundle: { files: [] } }) }),
+    accountBundle: async () => ({ files: [{ path: '/save', data: 'local' }] }),
+    accountHash: async () => 'local-hash',
+    preferences: { getItem: () => JSON.stringify({ revision: 1, hash: 'previous-hash' }) },
+    serverAccount: { id: 'alice' },
+    accountApplySnapshot: async () => { applied = true; },
+  });
+  await assert.rejects(ctx.accountPrepare(), /Both local and server saves changed/);
+  assert.equal(applied, false);
+});
+
+test('new browser restores server snapshot before enabling account saves', async () => {
+  const order = [];
+  const remote = { version: 1, files: [{ path: '/save', data: 'server' }] };
+  const ctx = load(['accountPrepare'], {
+    accountRequest: async () => ({ json: async () => ({ revision: 4, bundle: remote }) }),
+    accountBundle: async () => ({ files: [] }), accountHash: async bundle => bundle.files.length ? 'remote' : 'empty',
+    preferences: { getItem: () => null }, serverAccount: { id: 'alice' },
+    accountApplySnapshot: async bundle => { assert.equal(bundle, remote); order.push('restored'); },
+    accountSaveBase: () => order.push('base'), accountStatus: () => {}, refreshSavesTab: async () => {},
+  }, 'let accountRevision = 0, accountLastHash = "", accountBlocked = true;');
+  await ctx.accountPrepare();
+  assert.deepEqual(order, ['restored', 'base']);
+  assert.equal(vm.runInContext('accountRevision', ctx), 4);
+  assert.equal(vm.runInContext('accountBlocked', ctx), false);
+});
+
+test('account backup sends the base revision and keeps it on server rejection', async () => {
+  const ctx = load(['accountSync'], {
+    serverAccount: { id: 'alice' }, accountBlocked: false, window: {},
+    accountBundle: async () => ({ version: 1, files: [] }), accountHash: async () => 'changed',
+    accountRequest: async (route, options) => {
+      assert.equal(route, 'saves');
+      assert.equal(JSON.parse(options.body).revision, 7);
+      throw new Error('conflict');
+    },
+  }, 'let accountRevision = 7, accountLastHash = "old";');
+  await assert.rejects(ctx.accountSync(), /conflict/);
+  assert.equal(vm.runInContext('accountRevision', ctx), 7);
+  assert.equal(vm.runInContext('accountLastHash', ctx), 'old');
+});
+
+test('account namespace isolates guest and distinct user saves', () => {
+  const ctx = load(['accountUseProfile'], {
+    _persistedFileState: new Map([['/old', 'fingerprint']]), accountUI: () => {},
+  }, 'let serverAccount = null, OPFS_PERSIST_DIR = "persist", _detectedMemstick = "/old";');
+  ctx.accountUseProfile({ id: 'alice' });
+  assert.equal(vm.runInContext('OPFS_PERSIST_DIR', ctx), 'persist-user-alice');
+  assert.equal(ctx._persistedFileState.size, 0);
+  ctx.accountUseProfile({ id: 'bob' });
+  assert.equal(vm.runInContext('OPFS_PERSIST_DIR', ctx), 'persist-user-bob');
+  ctx.accountUseProfile(null);
+  assert.equal(vm.runInContext('OPFS_PERSIST_DIR', ctx), 'persist');
+});
+
+test('failed staged account restore preserves the original profile', async () => {
+  const removed = [];
+  const ctx = load(['accountApplySnapshot'], {
+    serverAccount: { id: 'alice' },
+    opfsRoot: async () => ({ removeEntry: async name => removed.push(name) }),
+    opfsParent: async () => ({ name: 'DATA.BIN', dir: { getFileHandle: async () => ({}) } }),
+    base64ToBytes: () => new Uint8Array([1]),
+    writeOpfsHandle: async () => { throw new Error('quota'); },
+    preferences: { setItem: () => assert.fail('must not commit failed restore') },
+  }, 'let OPFS_PERSIST_DIR = "persist-user-alice-original";');
+  await assert.rejects(ctx.accountApplySnapshot({ files: [{ path: '/save', data: 'YQ==' }] }), /quota/);
+  assert.equal(vm.runInContext('OPFS_PERSIST_DIR', ctx), 'persist-user-alice-original');
+  assert.equal(removed.length, 1);
+  assert.notEqual(removed[0], 'persist-user-alice-original');
+});
+
+test('account API never enters the service worker shell or immutable cache', () => {
+  let handler;
+  serviceWorker({ self: { location: { origin: 'https://example.test' }, addEventListener: (name, fn) => { if (name === 'fetch') handler = fn; } } });
+  for (const path of ['saves', 'games', 'private.json', 'private.iso']) {
+    handler({ request: new Request('https://example.test/api/account/' + path), respondWith: () => assert.fail('account API must use network only') });
+  }
+});
+
+test('an intentionally empty account profile keeps unsynced deletions', async () => {
+  let applied = false;
+  const ctx = load(['accountPrepare'], {
+    accountRequest: async () => ({ json: async () => ({ revision: 2, bundle: { files: [{ path: '/old', data: 'old' }] } }) }),
+    accountBundle: async () => ({ files: [] }), accountHash: async () => 'empty',
+    preferences: { getItem: () => JSON.stringify({ revision: 2, hash: 'previous' }) },
+    serverAccount: { id: 'alice' }, OPFS_PERSIST_DIR: 'alice-profile', opfsDir: async () => ({}),
+    accountApplySnapshot: async () => { applied = true; }, accountSaveBase: () => {}, accountStatus: () => {}, refreshSavesTab: async () => {},
+  }, 'let accountRevision = 0, accountLastHash = "", accountBlocked = true;');
+  await ctx.accountPrepare();
+  assert.equal(applied, false);
+  assert.equal(vm.runInContext('accountLastHash', ctx), 'previous');
+});
+
+test('evicted browser storage restores remote data instead of uploading deletions', async () => {
+  let applied = false;
+  const ctx = load(['accountPrepare'], {
+    accountRequest: async () => ({ json: async () => ({ revision: 2, bundle: { files: [{ path: '/old', data: 'old' }] } }) }),
+    accountBundle: async () => ({ files: [] }), accountHash: async () => 'remote',
+    preferences: { getItem: () => JSON.stringify({ revision: 1, hash: 'previous' }) },
+    serverAccount: { id: 'alice' }, OPFS_PERSIST_DIR: 'alice-profile',
+    opfsDir: async () => { const error = new Error('evicted'); error.name = 'NotFoundError'; throw error; },
+    accountApplySnapshot: async () => { applied = true; }, accountSaveBase: () => {}, accountStatus: () => {}, refreshSavesTab: async () => {},
+  }, 'let accountRevision = 0, accountLastHash = "", accountBlocked = true;');
+  await ctx.accountPrepare();
+  assert.equal(applied, true);
+});
+
+test('same-browser account play lock rejects a second running tab', async () => {
+  const ctx = load(['accountAcquirePlayLock'], {
+    serverAccount: { id: 'alice' },
+    navigator: { locks: { request: async (name, options, callback) => {
+      assert.equal(name, 'ppsspp-account-play-alice');
+      assert.equal(options.ifAvailable, true);
+      await callback(null);
+    } } },
+  }, 'let accountPlayLock = false;');
+  await assert.rejects(ctx.accountAcquirePlayLock(), /already playing in another tab/);
+  assert.equal(vm.runInContext('accountPlayLock', ctx), false);
 });

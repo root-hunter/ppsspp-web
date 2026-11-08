@@ -5,3 +5,5 @@
 !relay_admin.py
 !shared_sessions.py
 !demo_archive.py
+!accounts.py
+!account_admin.py

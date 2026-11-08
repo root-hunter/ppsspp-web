@@ -91,6 +91,7 @@
         <button type="button" class="tab"        data-tab="saves"><i data-lucide="save"></i> Saves</button>
         <button type="button" class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</button>
         <button type="button" class="tab"        data-tab="shared"><i data-lucide="monitor"></i> Shared Sessions</button>
+        <button type="button" class="tab" data-tab="server"><i data-lucide="server"></i> Server</button>
         <button type="button" class="tab" data-tab="drive"><i data-lucide="cloud"></i> Drive</button>
         <button type="button" class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> Storage</button>
         <button type="button" class="tab"        data-tab="info"><i data-lucide="settings"></i> System</button>
@@ -258,6 +259,34 @@
             <p class="shared-help">Keep playing locally while friends watch. With Remote play, you choose who controls your PSP.</p><div id="sharedMembers" aria-label="Session guests"></div>
           </div></details>
           <details class="shared-technical"><summary>Connection details</summary><p id="sharedMediaStatus" role="status"></p><p>Uses the relay and room saved in Network. Guests need no game download. Up to four guests share the host’s PSP.</p></details>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tabServer">
+        <div class="settings-panel">
+          <div class="section-heading"><h1>Server account</h1></div>
+          <p>Sign in on any browser to recover your saves and install games from this server's shared library.</p>
+          <p id="accountIdentity">Guest · local saves</p>
+          <form id="accountLoginForm" class="info-group">
+            <label for="accountName">Username</label>
+            <input id="accountName" autocomplete="username" maxlength="64" required>
+            <label for="accountPassword">Password</label>
+            <input id="accountPassword" type="password" autocomplete="current-password" maxlength="1024" required>
+            <button type="submit" class="primary">Sign in</button>
+            <p class="field-help">Accounts are created by your server administrator. Sign in before starting the emulator. Guest saves remain separate.</p>
+          </form>
+          <p id="accountStatus" role="status" aria-live="polite">Requires a self-hosted server with accounts enabled.</p>
+          <div id="accountControls" hidden>
+            <div class="action-row">
+              <button id="accountSync" type="button">Back up saves now</button>
+              <button id="accountRestore" type="button">Restore server saves</button>
+              <button id="accountLogout" type="button">Sign out</button>
+            </div>
+            <p class="field-help">Saves belong to your account. If another browser updates them, backup stops to protect both copies. Use Saves → Export before restoring. Finish backup before closing the browser.</p>
+            <div class="section-heading"><h2>Server games</h2><button id="accountRefresh" type="button">Refresh</button></div>
+            <p>Install a local copy to play. The original stays on the server for your next browser.</p>
+            <div id="accountGames"></div>
+          </div>
         </div>
       </div>
 

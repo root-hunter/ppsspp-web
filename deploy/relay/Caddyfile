@@ -3,7 +3,7 @@
 }
 
 {$RELAY_DOMAIN} {
-	@relay path /healthz /adhoc /adhoc/*
+	@relay path /healthz /adhoc /adhoc/* /api/account/*
 	handle @relay {
 		reverse_proxy relay:8081
 	}

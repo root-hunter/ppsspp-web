@@ -12,6 +12,12 @@ the pinned Git submodule used for reproducible checkouts and local development.
 If you temporarily want to use a separate checkout, override
 `WASM_ROOT=/path/to/ppsspp-wasm`.
 
+## Accounts and server game library
+
+Self-hosted instances can provide administrator-created accounts, per-user saves
+and a shared game library that persists across browsers. See
+[setup and synchronization behavior](docs/server-accounts.md).
+
 ## Checkout
 
 Clone with submodules:

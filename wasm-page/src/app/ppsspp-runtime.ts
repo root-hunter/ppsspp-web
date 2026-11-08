@@ -61,7 +61,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-11-01-shared-player-v6';
+const RUNTIME_ASSET_VERSION = '2026-11-08-server-accounts-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

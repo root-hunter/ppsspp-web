@@ -10,3 +10,5 @@ wasm-page/dist/
 wasm-page/node_modules/
 !server/shared_sessions.py
 !server/demo_archive.py
+!server/accounts.py
+!server/account_admin.py

@@ -2,6 +2,8 @@ services:
   relay:
     image: ${RELAY_IMAGE:?Set RELAY_IMAGE to the published GHCR image digest}
     environment:
+      PPSSPP_ACCOUNT_DATA: ${PPSSPP_ACCOUNT_DATA:-}
+      PPSSPP_SERVER_GAMES: /library
       RELAY_AUTH_MODE: ${RELAY_AUTH_MODE:-keys}
       RELAY_AUTH_DB: /data/relay-auth.sqlite3
       RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
@@ -12,6 +14,7 @@ services:
       RELAY_TURN_TTL: ${RELAY_TURN_TTL:-3600}
     volumes:
       - relay-auth:/data
+      - ${PPSSPP_SERVER_GAMES_PATH:-./server-games}:/library:ro
     init: true
     read_only: true
     cap_drop: [ALL]

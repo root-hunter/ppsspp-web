@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from functools import partial
 
 
+from accounts import Accounts, serve_accounts
 from demo_archive import serve_demo_archive
 from relay_auth import RelayAuth
 from relay import AdhocWebSocketHandler, ThreadingAdhocWebSocketServer, TrackedServerMixin
@@ -51,6 +52,8 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if serve_accounts(self):
+            return
         if serve_demo_archive(self):
             return
         if path == "/healthz":
@@ -84,7 +87,15 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def do_POST(self):
+        if not serve_accounts(self):
+            self.send_error(404)
+
+    do_PUT = do_POST
+
     def do_HEAD(self):
+        if serve_accounts(self):
+            return
         if urlparse(self.path).path.startswith("/server/"):
             self.send_error(404)
             return
@@ -164,6 +175,12 @@ def main():
 
     server = WasmThreadingServer((args.bind, args.port), handler)
 
+    server.accounts = Accounts.from_env()
+    if server.accounts:
+        from pathlib import Path
+        for private in (server.accounts.root, server.accounts.games):
+            if private and any(private.is_relative_to(Path(root).resolve()) for root in (web_root, wasm_root)):
+                parser.error("Account data and server games must be outside the served web/wasm roots")
     server.relay_auth = RelayAuth.from_env()
     server.adhoc_enabled = args.adhoc_ws
     if args.https:

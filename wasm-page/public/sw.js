@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v35-shared-player";
+const CACHE_VERSION = "ppsspp-angular-v36-server-accounts";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -59,6 +59,7 @@ self.addEventListener("fetch", event => {
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
   const pathname = url.pathname;
+  if (pathname.startsWith("/api/account/")) return;
 
   // App shell → network-first, fallback to cache
   const isShell = pathname.endsWith("/") ||

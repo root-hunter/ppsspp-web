@@ -28,7 +28,7 @@ const GAME_FILE_EXT_RE = /\.(iso|cso|chd|pbp|elf|prx)$/i;
 // Persistence: PPSSPP writes config+saves to $HOME/.config/ppsspp/ on Linux/Emscripten
 const PERSIST_ROOTS       = ["/home/web_user/.config/ppsspp", "/root/.config/ppsspp"];
 const OPFS_ROOT_DIR       = "ppsspp-web";
-const OPFS_PERSIST_DIR    = "persist";
+let OPFS_PERSIST_DIR      = "persist";
 const OPFS_GAMES_DIR      = "games";
 const OPFS_GAME_META_DIR  = "game-meta";
 const PERSIST_SYNC_MS     = 30000; // auto-sync every 30 s
@@ -5182,6 +5182,16 @@ canvas?.addEventListener("webglcontextlost", event => {
 
 /* ── Launch ─────────────────────────────────────────────────────── */
 async function start() {
+  if (started || accountBusy) return;
+  await accountBoot;
+  if (accountBusy) return;
+  if (serverAccount && accountBlocked) {
+    showToast("Server saves are not ready. Open the Server tab to resolve the connection or conflict.", 8000);
+    return;
+  }
+  if (started) return;
+  try { await accountAcquirePlayLock(); }
+  catch (error) { showToast(error.message, 8000); return; }
   if (started) return;
   if (!canvas) {
     setStatus("Runtime UI is not ready: canvas element missing", "err");
@@ -5821,6 +5831,222 @@ log("Page loaded. crossOriginIsolated=" + window.crossOriginIsolated, window.cro
 log("Build: " + BUILD_STAMP, "dim");
 probeWebGLFeatures();
 updateInfoPanel();
+/* ── Private server account ─────────────────────────────────────── */
+let serverAccount = null, accountToken = "", accountRevision = 0;
+let accountBusy = false, accountBlocked = false, accountLastHash = "";
+let accountBoot = Promise.resolve();
+let accountPlayLock = false;
+async function accountAcquirePlayLock() {
+  if (!serverAccount || accountPlayLock || !navigator.locks) return;
+  await new Promise((resolve, reject) => {
+    navigator.locks.request("ppsspp-account-play-" + serverAccount.id, { ifAvailable: true }, async lock => {
+      if (!lock) { reject(new Error("This account is already playing in another tab. Close that tab before launching here.")); return; }
+      accountPlayLock = true;
+      resolve();
+      // The browser releases this lock when this page closes or reloads.
+      await new Promise(() => {});
+    }).catch(reject);
+  });
+}
+
+function accountStatus(message) {
+  const el = byId("accountStatus");
+  if (el) el.textContent = message;
+}
+function accountUI() {
+  byId("accountIdentity").textContent = serverAccount ? "Signed in as " + serverAccount.name : "Guest · local saves";
+  byId("accountLoginForm").hidden = !!serverAccount;
+  byId("accountControls").hidden = !serverAccount;
+}
+async function accountRequest(route, options = {}) {
+  const response = await fetch("api/account/" + route, {
+    ...options, cache: "no-store", credentials: "omit",
+    signal: options.signal || (route === "game" ? undefined : AbortSignal.timeout(30000)),
+    headers: { "Content-Type": "application/json", ...(accountToken ? { Authorization: "Bearer " + accountToken } : {}), ...options.headers },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Account server unavailable (" + response.status + ")");
+  }
+  return response;
+}
+function accountRemember() {
+  try {
+    if (serverAccount) sessionStorage.setItem("ppsspp_server_account", JSON.stringify({ ...serverAccount, token: accountToken }));
+    else sessionStorage.removeItem("ppsspp_server_account");
+  } catch (_) {}
+}
+function accountUseProfile(user) {
+  serverAccount = user;
+  OPFS_PERSIST_DIR = user ? "persist-user-" + user.id : "persist";
+  _persistedFileState.clear(); _detectedMemstick = null;
+  accountUI();
+}
+async function accountBundle() {
+  const files = await opfsWalk();
+  return { version: 1, files: files.map(({ path, data }) => ({ path, data: bytesToBase64(data) })).sort((a, b) => a.path.localeCompare(b.path)) };
+}
+async function accountHash(bundle) {
+  const normalized = bundle.files.map(({ path, data }) => ({ path, data })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const bytes = new TextEncoder().encode(JSON.stringify(normalized));
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+}
+function accountSaveBase() {
+  preferences.setItem("ppsspp_account_base_" + serverAccount.id, JSON.stringify({ revision: accountRevision, hash: accountLastHash }));
+}
+async function accountApplySnapshot(bundle) {
+  // Stage the complete snapshot first. A failed/quota-limited restore never
+  // removes the previously usable local copy.
+  const profile = "persist-user-" + serverAccount.id;
+  const stage = profile + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  const previous = OPFS_PERSIST_DIR;
+  const root = await opfsRoot();
+  try {
+    for (const { path, data } of bundle.files) {
+      const { dir, name } = await opfsParent(path, true, stage);
+      await writeOpfsHandle(await dir.getFileHandle(name, { create: true }), base64ToBytes(data));
+    }
+    await root.getDirectoryHandle(stage, { create: true });
+    preferences.setItem("ppsspp_account_profile_" + serverAccount.id, stage);
+    OPFS_PERSIST_DIR = stage;
+  } catch (error) {
+    OPFS_PERSIST_DIR = previous;
+    try { await root.removeEntry(stage, { recursive: true }); } catch (_) {}
+    throw error;
+  }
+  // Keep the previous generation as recovery data until the next successful restore.
+  const old = preferences.getItem("ppsspp_account_previous_" + serverAccount.id);
+  if (old && old !== previous && old.startsWith(profile + "-")) {
+    try { await root.removeEntry(old, { recursive: true }); } catch (_) {}
+  }
+  preferences.setItem("ppsspp_account_previous_" + serverAccount.id, previous);
+}
+async function accountRefreshGames() {
+  const { games } = await (await accountRequest("games")).json();
+  const list = byId("accountGames");
+  list.replaceChildren();
+  if (!games.length) list.textContent = "No server games. Ask the administrator to add games to the library.";
+  for (const game of games) {
+    const row = document.createElement("div"); row.className = "action-row";
+    const label = document.createElement("span"); label.textContent = game.name + " · " + formatBytes(game.size);
+    const button = document.createElement("button"); button.type = "button"; button.textContent = "Install locally";
+    button.onclick = () => accountAction(async () => {
+      accountStatus("Downloading " + game.name + "…");
+      const response = await accountRequest("game", { method: "POST", body: JSON.stringify({ name: game.name }) });
+      // Stream game images to OPFS rather than buffering an entire ISO in RAM.
+      const { dir, name } = await opfsParent(game.name, true, OPFS_GAMES_DIR);
+      const handle = await dir.getFileHandle(name, { create: true });
+      const writable = await handle.createWritable();
+      await response.body.pipeTo(writable);
+      await refreshLibrary();
+      accountStatus(game.name + " installed. Open it from Library.");
+    });
+    row.append(label, button); list.append(row);
+  }
+}
+async function accountPrepare() {
+  const remote = await (await accountRequest("saves")).json();
+  const local = await accountBundle(), hash = await accountHash(local);
+  let base = {};
+  try { base = JSON.parse(preferences.getItem("ppsspp_account_base_" + serverAccount.id) || "{}"); } catch (_) {}
+  let hasLocalState = local.files.length > 0;
+  if (!hasLocalState && typeof base.hash === "string") {
+    try { await opfsDir([OPFS_PERSIST_DIR], false); hasLocalState = true; }
+    catch (error) { if (error.name !== "NotFoundError") throw error; }
+  }
+  if (hasLocalState && hash !== base.hash && remote.revision !== (base.revision || 0)) {
+    throw new Error("Both local and server saves changed. Export local saves, then use Restore server saves before playing.");
+  }
+  if (!hasLocalState || hash === base.hash) {
+    await accountApplySnapshot(remote.bundle);
+    accountLastHash = await accountHash(remote.bundle);
+  } else {
+    accountLastHash = base.hash || "";
+  }
+  accountRevision = remote.revision;
+  accountSaveBase();
+  accountBlocked = false;
+  accountStatus("Saves ready. Automatic server backup every 30 seconds while playing.");
+  await refreshSavesTab();
+}
+async function accountSync() {
+  if (!serverAccount || accountBlocked) return;
+  if (window.FS) await persistFiles(window.FS, "server");
+  const bundle = await accountBundle(), hash = await accountHash(bundle);
+  if (hash === accountLastHash) { accountStatus("Server backup is up to date."); return; }
+  const result = await (await accountRequest("saves", { method: "PUT", body: JSON.stringify({ revision: accountRevision, bundle }) })).json();
+  accountRevision = result.revision; accountLastHash = hash;
+  accountSaveBase();
+  accountStatus("Saves backed up to server at " + new Date().toLocaleTimeString());
+}
+async function accountAction(action) {
+  if (accountBusy) return;
+  accountBusy = true;
+  try { await action(); }
+  catch (error) { accountStatus(error.message); showToast(error.message, 8000); }
+  finally { accountBusy = false; }
+}
+async function accountInitialize() {
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem("ppsspp_server_account") || "null"); } catch (_) {}
+  if (!saved || !/^[a-f0-9]{32}$/.test(saved.id) || typeof saved.token !== "string") { accountUI(); return; }
+  accountToken = saved.token;
+  accountUseProfile({ id: saved.id, name: saved.name });
+  const profile = preferences.getItem("ppsspp_account_profile_" + saved.id);
+  if (profile?.startsWith("persist-user-" + saved.id + "-")) OPFS_PERSIST_DIR = profile;
+  accountBlocked = true;
+  try {
+    const user = await (await accountRequest("me")).json();
+    if (user.id !== saved.id) throw new Error("Account identity changed; sign out and sign in again");
+    await accountPrepare();
+    await accountRefreshGames();
+  } catch (error) { accountStatus(error.message); }
+}
+
+on("accountLoginForm", "submit", event => {
+  event.preventDefault();
+  void accountAction(async () => {
+    if (started) throw new Error("Reload before changing accounts.");
+    accountStatus("Signing in…");
+    const password = byId("accountPassword").value;
+    byId("accountPassword").value = "";
+    const result = await (await accountRequest("login", { method: "POST", body: JSON.stringify({ name: byId("accountName").value, password }) })).json();
+    accountToken = result.token;
+    accountUseProfile({ id: result.id, name: result.name });
+    const profile = preferences.getItem("ppsspp_account_profile_" + result.id);
+    if (profile?.startsWith("persist-user-" + result.id + "-")) OPFS_PERSIST_DIR = profile;
+    accountRemember(); accountBlocked = true;
+    await accountPrepare();
+    await accountRefreshGames();
+  });
+});
+on("accountSync", "click", () => accountAction(async () => {
+  if (accountBlocked) throw new Error("Resolve the connection or save conflict before syncing. Reload to retry, or export your local saves and restore the server copy.");
+  try { await accountSync(); } catch (error) { accountBlocked = true; throw error; }
+}));
+on("accountRestore", "click", () => accountAction(async () => {
+  if (started) throw new Error("Reload before restoring server saves. Export your local saves first.");
+  if (!await confirmUI("Replace this account's local saves with the server copy? Export local saves first if you need to keep them.")) return;
+  const remote = await (await accountRequest("saves")).json();
+  await accountApplySnapshot(remote.bundle);
+  accountRevision = remote.revision; accountLastHash = await accountHash(remote.bundle); accountSaveBase();
+  accountBlocked = false; await refreshSavesTab(); accountStatus("Server saves restored.");
+}));
+on("accountRefresh", "click", () => accountAction(accountRefreshGames));
+on("accountLogout", "click", () => accountAction(async () => {
+  if (!accountBlocked) await accountSync();
+  try { await accountRequest("logout", { method: "POST", body: "{}" }); }
+  catch (error) { log("Server logout: " + error.message, "warn"); }
+  serverAccount = null; accountToken = ""; accountRemember();
+  location.reload();
+}));
+setInterval(() => {
+  if (serverAccount && runtimeReady && !accountBlocked) void accountAction(async () => {
+    try { await accountSync(); } catch (error) { accountBlocked = true; throw error; }
+  });
+}, 30000);
+accountBoot = accountInitialize();
+
 refreshLibrary();
 updateStorageInfo();    // populate OPFS tab with stats on load
 refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
