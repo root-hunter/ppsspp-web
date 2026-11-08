@@ -140,6 +140,16 @@ kbd { color: var(--text); font: 11px system-ui; }
 .info-group :is(h2, h3) { margin-bottom: 18px; }
 .info-group p { color: var(--muted); font-size: 13px; line-height: 1.7; }
 .info-group > label { display: block; font-size: 13px; margin-bottom: 8px; }
+/* Account form follows the settings spacing: 8px within fields, 20px between them. */
+.account-intro { max-width: 60ch; margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+#accountIdentity { margin-bottom: 24px; color: var(--muted); font-size: 13px; }
+.account-login:not([hidden]) { display: grid; gap: 20px; max-width: 440px; }
+.account-field { display: grid; gap: 8px; min-width: 0; }
+.account-field label { font-size: 13px; }
+.account-submit { justify-self: start; margin-top: 4px; min-width: 112px; }
+.account-login .field-help { margin-top: 0; }
+.account-status { margin-block: 20px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.account-status:empty { display: none; }
 .settings-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
 .info-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); gap: 16px; padding-block: 8px; font-size: 13px; }
 .info-key { color: var(--muted); }

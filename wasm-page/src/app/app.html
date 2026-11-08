@@ -263,19 +263,25 @@
       </div>
 
       <div class="tab-panel" id="tabServer">
-        <div class="settings-panel">
-          <div class="section-heading"><h1>Server account</h1></div>
-          <p>Sign in on any browser to recover your saves and install games from this server's shared library.</p>
+        <div class="settings-panel account-panel">
+          <div class="section-heading">
+            <h1>Server account</h1>
+            <p class="account-intro">Sign in on any browser to recover your saves and install games from this server's shared library.</p>
+          </div>
           <p id="accountIdentity">Guest · local saves</p>
-          <form id="accountLoginForm" class="info-group">
-            <label for="accountName">Username</label>
-            <input id="accountName" autocomplete="username" maxlength="64" required>
-            <label for="accountPassword">Password</label>
-            <input id="accountPassword" type="password" autocomplete="current-password" maxlength="1024" required>
-            <button type="submit" class="primary">Sign in</button>
+          <form id="accountLoginForm" class="info-group account-login">
+            <div class="account-field">
+              <label for="accountName">Username</label>
+              <input id="accountName" autocomplete="username" maxlength="64" required>
+            </div>
+            <div class="account-field">
+              <label for="accountPassword">Password</label>
+              <input id="accountPassword" type="password" autocomplete="current-password" maxlength="1024" required>
+            </div>
+            <button type="submit" class="primary account-submit">Sign in</button>
             <p class="field-help">Accounts are created by your server administrator. Sign in before starting the emulator. Guest saves remain separate.</p>
           </form>
-          <p id="accountStatus" role="status" aria-live="polite">Requires a self-hosted server with accounts enabled.</p>
+          <p id="accountStatus" class="account-status" role="status" aria-live="polite">Requires a self-hosted server with accounts enabled.</p>
           <div id="accountControls" hidden>
             <div class="action-row">
               <button id="accountSync" type="button">Back up saves now</button>
