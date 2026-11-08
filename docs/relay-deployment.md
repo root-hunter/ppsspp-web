@@ -4,13 +4,22 @@ The `wasm-pages.yml` workflow builds the Pages application and the relay image
 in separate GitHub-hosted jobs. The relay image is published to
 `ghcr.io/<owner>/<repository>/relay` with `sha-<commit>` and `latest` tags,
 for both `linux/amd64` and `linux/arm64` (Oracle Ampere).
-Deployments use the immutable digest returned by that build.
 
-Pushes to `wasm`, and manual workflow runs selecting `wasm`, publish and deploy
-the relay. Pull requests run the Python tests and Docker build on GitHub-hosted
-runners only. The Oracle job uses `runs-on: self-hosted` and starts as soon as
-the relay image is ready; it does not depend on the longer WASM build.
-Concurrent relay deployments are serialized.
+Pushes to `wasm`, and manual build workflow runs selecting `wasm`, publish the
+relay image without deploying it. Pull requests run the Python tests and Docker
+build on GitHub-hosted runners only.
+
+Oracle deployment is a separate, manual-only workflow (`deploy-relay.yml`).
+In GitHub Actions, select **Deploy relay on Oracle**, click **Run workflow**,
+and select the `wasm` branch. First wait for the relay image build for that
+commit to finish successfully. The deployment pulls the `sha-<commit>` image
+for the selected revision and resolves its immutable digest before starting it.
+If that image has not been published, the deployment fails without changing
+the running services.
+
+The Oracle job uses `runs-on: self-hosted`. An offline runner or a failed
+deployment does not hold up the build/Pages workflow or later CI runs.
+Concurrent relay deployments are serialized independently of CI.
 
 ## Oracle prerequisites
 

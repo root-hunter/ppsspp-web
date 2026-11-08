@@ -1,0 +1,62 @@
+name: Deploy relay on Oracle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-relay:
+    name: Deploy relay on Server
+    if: github.ref == 'refs/heads/wasm'
+    runs-on: self-hosted
+    timeout-minutes: 15
+    concurrency:
+      group: oracle-relay-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: oracle-relay
+    steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/relay
+
+      - name: Configure temporary Docker credentials directory
+        shell: bash
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/relay-docker-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR for pull
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve published relay image
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}/relay:sha-$GITHUB_SHA"
+          docker pull "$image"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
+          echo "RELAY_IMAGE=$digest" >> "$GITHUB_ENV"
+
+      - name: Pull and start relay with Caddy
+        shell: bash
+        env:
+          RELAY_DOMAIN: ${{ secrets.RELAY_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          RELAY_AUTH_MODE: ${{ vars.RELAY_AUTH_MODE }}
+          RELAY_STUN_URLS: ${{ vars.RELAY_STUN_URLS }}
+          RELAY_TURN_URLS: ${{ vars.RELAY_TURN_URLS }}
+          RELAY_TURN_SECRET: ${{ secrets.RELAY_TURN_SECRET }}
+          RELAY_TURN_TTL: ${{ vars.RELAY_TURN_TTL }}
+        run: bash deploy/relay/deploy.sh

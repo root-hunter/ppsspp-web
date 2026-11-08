@@ -125,8 +125,9 @@ make server-docker-up-local
 
 For the public relay on Oracle with automatic HTTPS on port 443, see
 [Oracle relay deployment](docs/relay-deployment.md). GitHub Actions builds and
-pushes the multi-platform relay image to GHCR; the Oracle `self-hosted` runner
-only pulls images and starts the relay and Caddy containers.
+pushes the multi-platform relay image to GHCR. The separate **Deploy relay on
+Oracle** workflow runs manually; its `self-hosted` runner pulls the published
+image and starts the relay and Caddy containers.
 
 ## GitHub Pages
 
